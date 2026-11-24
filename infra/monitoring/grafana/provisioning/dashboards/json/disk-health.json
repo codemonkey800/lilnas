@@ -1,0 +1,2366 @@
+{
+  "id": null,
+  "uid": "lilnas-disk-health",
+  "title": "Disk Health",
+  "description": "SMART health, btrfs device errors, temperatures and kernel disk errors for the 8 SATA HDDs and 5 NVMe drives.",
+  "tags": ["lilnas", "storage", "hardware"],
+  "links": [
+    {
+      "title": "Dashboards",
+      "type": "dashboards",
+      "tags": ["lilnas"],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true
+    }
+  ],
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "templating": {
+    "list": []
+  },
+  "schemaVersion": 39,
+  "editable": true,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "At a glance",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Drives reporting",
+      "description": "Drives smartctl-exporter reports on, out of the 13 expected (8 SATA HDDs sda-sdh, 5 NVMe nvme0-nvme4). Red when a drive stops reporting, which is how a drive that fell off the bus shows up.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "count(smartctl_device)",
+          "legendFormat": "drives",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: / 13",
+          "decimals": 0,
+          "noValue": "0",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 13
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Drives failing SMART",
+      "description": "Drives whose SMART overall-health self-assessment is not PASSED. Green only at 0.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "count(smartctl_device_smart_status == 0) or vector(0)",
+          "legendFormat": "failing",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "0",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Bad sectors",
+      "description": "Reallocated + pending + offline-uncorrectable sectors (raw values) summed over the HDDs: the current total beside how much it rose in the selected range. Green only when both are 0.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(smartctl_device_attribute{attribute_value_type=\"raw\", attribute_name=~\"Reallocated_Sector_Ct|Current_Pending_Sector|Offline_Uncorrectable\"}) or vector(0)",
+          "legendFormat": "total",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(increase(smartctl_device_attribute{attribute_value_type=\"raw\", attribute_name=~\"Reallocated_Sector_Ct|Current_Pending_Sector|Offline_Uncorrectable\"}[$__range])) or vector(0)",
+          "legendFormat": "rise in range",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "0",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "NVMe media errors",
+      "description": "Media and data-integrity errors reported by the NVMe drives: the current total beside how much it rose in the selected range. Green only when both are 0.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(smartctl_device_media_errors) or vector(0)",
+          "legendFormat": "total",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(increase(smartctl_device_media_errors[$__range])) or vector(0)",
+          "legendFormat": "rise in range",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "0",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "btrfs device errors",
+      "description": "Read, write, flush, corruption and generation errors btrfs counted across all device members: the current total beside how much it rose in the selected range. Green only when both are 0.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(node_btrfs_device_errors_total) or vector(0)",
+          "legendFormat": "total",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(increase(node_btrfs_device_errors_total[$__range])) or vector(0)",
+          "legendFormat": "rise in range",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "0",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Hottest drive",
+      "description": "Highest SMART temperature of any drive right now, with the drive. Yellow from 50 C, red from 65 C.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "topk(1, smartctl_device_temperature{temperature_type=\"current\"})",
+          "legendFormat": "{{device}}",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "decimals": 0,
+          "noValue": "0",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 50
+              },
+              {
+                "color": "red",
+                "value": 65
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"]
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "Drives",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "panels": []
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Drives",
+      "description": "One row per drive. Mount and contents come from the btrfs filesystem on the drive. HDD columns (reallocated, pending, uncorrectable, CRC errors, error log) and NVMe columns (used %, spare %, media errors, critical warning) are blank for the other type. \"rise\" columns are the increase over the selected range; counters are the raw attribute values.",
+      "gridPos": {
+        "h": 15,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "label_replace((lilnas_storage_volume * on(mountpoint) group_left(device) (node_filesystem_size_bytes{device=~\"/dev/(sd|nvme).*\", fstype=\"btrfs\"} > bool 0) or label_replace(node_filesystem_size_bytes{mountpoint=\"/\", device=~\"/dev/nvme.*\"} > bool 0, \"volume\", \"system (boot disk)\", \"mountpoint\", \"/\")), \"device\", \"$1\", \"device\", \"/dev/(sd[a-z]+|nvme[0-9]+)(?:n[0-9]+p[0-9]+|[0-9]+)\")",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "expr": "smartctl_device",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "C",
+          "expr": "smartctl_device_smart_status",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "D",
+          "expr": "smartctl_device_power_on_seconds",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "E",
+          "expr": "smartctl_device_temperature{temperature_type=\"current\"}",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "F",
+          "expr": "smartctl_device_attribute{attribute_value_type=\"raw\", attribute_name=\"Reallocated_Sector_Ct\"}",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "G",
+          "expr": "smartctl_device_attribute{attribute_value_type=\"raw\", attribute_name=\"Current_Pending_Sector\"}",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "H",
+          "expr": "smartctl_device_attribute{attribute_value_type=\"raw\", attribute_name=\"Offline_Uncorrectable\"}",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "I",
+          "expr": "smartctl_device_attribute{attribute_value_type=\"raw\", attribute_name=\"UDMA_CRC_Error_Count\"}",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "J",
+          "expr": "increase(smartctl_device_attribute{attribute_value_type=\"raw\", attribute_name=\"UDMA_CRC_Error_Count\"}[$__range])",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "K",
+          "expr": "smartctl_device_error_log_count",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "L",
+          "expr": "increase(smartctl_device_error_log_count[$__range])",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "M",
+          "expr": "smartctl_device_percentage_used",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "N",
+          "expr": "smartctl_device_available_spare",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "O",
+          "expr": "smartctl_device_media_errors",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "P",
+          "expr": "smartctl_device_critical_warning",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "-",
+          "custom": {
+            "align": "auto",
+            "width": 74,
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Model"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 190
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mount"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Contents"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 160
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "SMART"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "FAIL",
+                        "color": "red"
+                      },
+                      "1": {
+                        "text": "PASS",
+                        "color": "green"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Power-on"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dtdurations"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Temp"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "celsius"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 50
+                    },
+                    {
+                      "color": "red",
+                      "value": 65
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Realloc"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "-",
+                        "color": "transparent"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Pending"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "-",
+                        "color": "transparent"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Uncorr"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "-",
+                        "color": "transparent"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CRC"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "-",
+                        "color": "transparent"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CRC rise"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "-",
+                        "color": "transparent"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Err log"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "-",
+                        "color": "transparent"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Log rise"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "-",
+                        "color": "transparent"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Media err"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "-",
+                        "color": "transparent"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Crit warn"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "-",
+                        "color": "transparent"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Used %"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 80
+                    },
+                    {
+                      "color": "red",
+                      "value": 95
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "-",
+                        "color": "transparent"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Spare %"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 20
+                    },
+                    {
+                      "color": "green",
+                      "value": 90
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "special",
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "text": "-",
+                        "color": "transparent"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Device",
+            "desc": false
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "device",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "device",
+                "mountpoint",
+                "volume",
+                "model_name",
+                "Value #C",
+                "Value #D",
+                "Value #E",
+                "Value #F",
+                "Value #G",
+                "Value #H",
+                "Value #I",
+                "Value #J",
+                "Value #K",
+                "Value #L",
+                "Value #M",
+                "Value #N",
+                "Value #O",
+                "Value #P"
+              ]
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Device": 0,
+              "Mount": 1,
+              "Contents": 2,
+              "Model": 3,
+              "SMART": 6,
+              "Power-on": 7,
+              "Temp": 8,
+              "Realloc": 9,
+              "Pending": 10,
+              "Uncorr": 11,
+              "CRC": 12,
+              "CRC rise": 13,
+              "Err log": 14,
+              "Log rise": 15,
+              "Used %": 16,
+              "Spare %": 17,
+              "Media err": 18,
+              "Crit warn": 19
+            },
+            "renameByName": {
+              "device": "Device",
+              "mountpoint": "Mount",
+              "volume": "Contents",
+              "model_name": "Model",
+              "Value #C": "SMART",
+              "Value #D": "Power-on",
+              "Value #E": "Temp",
+              "Value #F": "Realloc",
+              "Value #G": "Pending",
+              "Value #H": "Uncorr",
+              "Value #I": "CRC",
+              "Value #J": "CRC rise",
+              "Value #K": "Err log",
+              "Value #L": "Log rise",
+              "Value #M": "Used %",
+              "Value #N": "Spare %",
+              "Value #O": "Media err",
+              "Value #P": "Crit warn"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "HDD",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "HDD temperature",
+      "description": "SMART current temperature of each SATA drive.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "smartctl_device_temperature{temperature_type=\"current\", device=~\"sd.*\"}",
+          "legendFormat": "{{device}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 50
+              },
+              {
+                "color": "red",
+                "value": 65
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "HDD sector counters",
+      "description": "Raw values of the three sector-health attributes, summed over the HDDs. Any rise means the platters are failing; per-drive values are in the Drives table.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "sum(smartctl_device_attribute{attribute_value_type=\"raw\", attribute_name=\"Reallocated_Sector_Ct\"})",
+          "legendFormat": "Reallocated_Sector_Ct",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(smartctl_device_attribute{attribute_value_type=\"raw\", attribute_name=\"Current_Pending_Sector\"})",
+          "legendFormat": "Current_Pending_Sector",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(smartctl_device_attribute{attribute_value_type=\"raw\", attribute_name=\"Offline_Uncorrectable\"})",
+          "legendFormat": "Offline_Uncorrectable",
+          "refId": "C"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMax": 1
+          },
+          "decimals": 0,
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "UDMA CRC errors",
+      "description": "UDMA_CRC_Error_Count (raw) per drive. It counts transfers corrupted between the drive and the controller, so a rising line points at the SATA cable, backplane or port rather than the platters.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 30
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "smartctl_device_attribute{attribute_value_type=\"raw\", attribute_name=\"UDMA_CRC_Error_Count\"}",
+          "legendFormat": "{{device}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMax": 1
+          },
+          "decimals": 0,
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "HDD error log count",
+      "description": "Entries in each drive's SMART device error log (summary log). The count only grows.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 30
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "smartctl_device_error_log_count{device=~\"sd.*\"}",
+          "legendFormat": "{{device}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMax": 1
+          },
+          "decimals": 0,
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "row",
+      "title": "NVMe",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 38
+      },
+      "panels": []
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "NVMe temperature",
+      "description": "Solid lines: SMART temperature from smartctl. Dashed lines: the Composite sensor from hwmon (node-exporter).",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 39
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "smartctl_device_temperature{temperature_type=\"current\", device=~\"nvme.*\"}",
+          "legendFormat": "{{device}} SMART",
+          "refId": "A"
+        },
+        {
+          "expr": "label_replace(node_hwmon_temp_celsius{sensor=\"temp1\"} * on(chip) group_left(chip_name) node_hwmon_chip_names{chip_name=\"nvme\"}, \"device\", \"$1\", \"chip\", \"nvme_(nvme[0-9]+)\")",
+          "legendFormat": "{{device}} hwmon",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/hwmon/"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [10, 10]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      }
+    },
+    {
+      "id": 17,
+      "type": "state-timeline",
+      "title": "NVMe controller state",
+      "description": "node_nvme_info state per controller: live, or anything else (resetting, dead, deleting). A gap means the controller vanished from the PCIe bus, as the boot drive once did.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 39
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "max by (device)(node_nvme_info{state=\"live\"}) or (0 * max by (device)(node_nvme_info{state!=\"live\"}))",
+          "legendFormat": "{{device}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 70,
+            "lineWidth": 0
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "not live",
+                  "color": "red"
+                },
+                "1": {
+                  "text": "live",
+                  "color": "green"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "mergeValues": true,
+        "showValue": "auto",
+        "rowHeight": 0.8,
+        "alignValue": "center",
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "NVMe wear (percentage used)",
+      "description": "Vendor estimate of endurance used (SMART percentage_used). Can pass 100 on a worn drive.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 47
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "smartctl_device_percentage_used",
+          "legendFormat": "{{device}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMax": 10
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 95
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      }
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "NVMe available spare",
+      "description": "Remaining spare capacity (SMART available_spare). The drive raises a critical warning when it falls under its threshold.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 47
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "smartctl_device_available_spare",
+          "legendFormat": "{{device}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 20
+              },
+              {
+                "color": "green",
+                "value": 90
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      }
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "NVMe media errors",
+      "description": "Media and data-integrity errors, and entries in the controller error log, per drive. Both only grow.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 47
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "smartctl_device_media_errors",
+          "legendFormat": "{{device}} media errors",
+          "refId": "A"
+        },
+        {
+          "expr": "smartctl_device_num_err_log_entries",
+          "legendFormat": "{{device}} error log entries",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMax": 1
+          },
+          "decimals": 0,
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      }
+    },
+    {
+      "id": 21,
+      "type": "row",
+      "title": "btrfs",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 55
+      },
+      "panels": []
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "btrfs device errors",
+      "description": "node_btrfs_device_errors_total per device and error type (read, write, flush, corruption, generation). The legend is sorted so non-zero series come first.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 56
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "node_btrfs_device_errors_total",
+          "legendFormat": "{{device}} {{type}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMax": 1
+          },
+          "decimals": 0,
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull"],
+          "sortBy": "Last *",
+          "sortDesc": true
+        }
+      }
+    },
+    {
+      "id": 23,
+      "type": "table",
+      "title": "btrfs allocation per filesystem",
+      "description": "Per btrfs filesystem: bytes used versus bytes allocated to chunks for data and metadata, and the device space not yet allocated to any chunk. Metadata nearing its allocation while Unallocated is 0 is what makes a btrfs volume run out of space early.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 56
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (uuid)(node_btrfs_used_bytes{block_group_type=\"data\"}) * on(uuid) group_left(mountpoint) (max by (uuid, mountpoint)(label_replace(node_btrfs_device_size_bytes, \"device\", \"/dev/$1\", \"device\", \"(.*)\") * on(device) group_left(mountpoint) (node_filesystem_size_bytes{fstype=\"btrfs\"} > bool 0)) > bool 0)",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (uuid)(node_btrfs_size_bytes{block_group_type=\"data\"}) * on(uuid) group_left(mountpoint) (max by (uuid, mountpoint)(label_replace(node_btrfs_device_size_bytes, \"device\", \"/dev/$1\", \"device\", \"(.*)\") * on(device) group_left(mountpoint) (node_filesystem_size_bytes{fstype=\"btrfs\"} > bool 0)) > bool 0)",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (uuid)(node_btrfs_used_bytes{block_group_type=\"metadata\"}) * on(uuid) group_left(mountpoint) (max by (uuid, mountpoint)(label_replace(node_btrfs_device_size_bytes, \"device\", \"/dev/$1\", \"device\", \"(.*)\") * on(device) group_left(mountpoint) (node_filesystem_size_bytes{fstype=\"btrfs\"} > bool 0)) > bool 0)",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "D",
+          "expr": "sum by (uuid)(node_btrfs_size_bytes{block_group_type=\"metadata\"}) * on(uuid) group_left(mountpoint) (max by (uuid, mountpoint)(label_replace(node_btrfs_device_size_bytes, \"device\", \"/dev/$1\", \"device\", \"(.*)\") * on(device) group_left(mountpoint) (node_filesystem_size_bytes{fstype=\"btrfs\"} > bool 0)) > bool 0)",
+          "format": "table",
+          "instant": true
+        },
+        {
+          "refId": "E",
+          "expr": "sum by (uuid)(node_btrfs_device_unused_bytes) * on(uuid) group_left(mountpoint) (max by (uuid, mountpoint)(label_replace(node_btrfs_device_size_bytes, \"device\", \"/dev/$1\", \"device\", \"(.*)\") * on(device) group_left(mountpoint) (node_filesystem_size_bytes{fstype=\"btrfs\"} > bool 0)) > bool 0)",
+          "format": "table",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "-",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Filesystem"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Filesystem",
+            "desc": false
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "mountpoint",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "mountpoint",
+                "Value #A",
+                "Value #B",
+                "Value #C",
+                "Value #D",
+                "Value #E"
+              ]
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "Filesystem": 0,
+              "Data used": 1,
+              "Data allocated": 2,
+              "Metadata used": 3,
+              "Metadata allocated": 4,
+              "Unallocated": 5
+            },
+            "renameByName": {
+              "mountpoint": "Filesystem",
+              "Value #A": "Data used",
+              "Value #B": "Data allocated",
+              "Value #C": "Metadata used",
+              "Value #D": "Metadata allocated",
+              "Value #E": "Unallocated"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "row",
+      "title": "Other temperatures",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 65
+      },
+      "panels": []
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "CPU temperature (k10temp)",
+      "description": "Tctl is the control temperature the CPU throttles on; Tccd1 and Tccd2 are the core-die sensors.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 66
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "node_hwmon_temp_celsius * on(chip) group_left(chip_name) node_hwmon_chip_names{chip_name=\"k10temp\"} * on(chip, sensor) group_left(label) node_hwmon_sensor_label",
+          "legendFormat": "{{chip_name}} {{label}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      }
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "Board and other sensors",
+      "description": "hwmon temperature sensors other than the CPU and the NVMe drives, labelled by chip name (gigabyte_wmi is the motherboard, acpitz the ACPI zone, amdgpu the integrated GPU).",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 66
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "expr": "node_hwmon_temp_celsius * on(chip) group_left(chip_name) node_hwmon_chip_names{chip_name!~\"nvme|k10temp\"}",
+          "legendFormat": "{{chip_name}} {{sensor}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "celsius",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": ["lastNotNull", "max"]
+        }
+      }
+    },
+    {
+      "id": 27,
+      "type": "row",
+      "title": "Kernel",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 74
+      },
+      "panels": []
+    },
+    {
+      "id": 28,
+      "type": "logs",
+      "title": "SATA errors and link resets",
+      "description": "Event-driven: kernel lines for an ataN port reporting an error, failure, exception, link down or hard link reset. Lines appear when a SATA cable, port or drive misbehaves; ata5 has done so before.",
+      "gridPos": {
+        "h": 9,
+        "w": 16,
+        "x": 0,
+        "y": 75
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=\"host\", identifier=\"kernel\"} |~ \"ata[0-9.]+: .*(error|failed|exception|hard resetting link|link down)\""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 29,
+      "type": "timeseries",
+      "title": "SATA error lines per interval",
+      "description": "Event-driven: how many SATA error and link-reset lines the kernel logged per interval. Empty when none did.",
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 75
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({service=\"host\", identifier=\"kernel\"} |~ \"ata[0-9.]+: .*(error|failed|exception|hard resetting link|link down)\" [$__interval]))",
+          "legendFormat": "lines"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "decimals": 0,
+          "noValue": "0",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "thresholds": {
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        }
+      }
+    },
+    {
+      "id": 30,
+      "type": "logs",
+      "title": "NVMe and PCIe errors",
+      "description": "Event-driven: kernel lines where an NVMe controller reports a timeout, reset, error or removal, or a PCIe port reports an AER error. Lines appear when a drive stalls or drops off the PCIe bus, as the boot drive once did.",
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 84
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service=\"host\", identifier=\"kernel\"} |~ \"(nvme[0-9n]+: .*(timeout|reset|disabled|removed|error|failed))|(pcieport .*AER)\""
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": false,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    }
+  ]
+}
