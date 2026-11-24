@@ -273,7 +273,8 @@ phases:
         files:
           - infra/monitoring/grafana/provisioning/dashboards/json/overview.json
           - infra/monitoring.yml
-        status: todo
+        status: done
+        commit: 43363b4889ba633cfd6f3e7ad48d64c6de94c41a
         body: |-
           Create `infra/monitoring/grafana/provisioning/dashboards/json/overview.json` (uid
           `lilnas-overview`, title `Overview`, tags `lilnas`, `overview`): one screen that says
