@@ -193,8 +193,8 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "(1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"}) * 100",
-          "legendFormat": "{{mountpoint}}",
+          "expr": "((1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"}) * 100) * on(mountpoint) group_left(volume) lilnas_storage_volume or on(mountpoint) label_replace(((1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"}) * 100), \"volume\", \"$1\", \"mountpoint\", \"(.*)\")",
+          "legendFormat": "{{volume}}",
           "refId": "A"
         }
       ],
@@ -239,8 +239,8 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "(1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"}) * 100",
-          "legendFormat": "{{mountpoint}}",
+          "expr": "((1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"}) * 100) * on(mountpoint) group_left(volume) lilnas_storage_volume or on(mountpoint) label_replace(((1 - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"}) * 100), \"volume\", \"$1\", \"mountpoint\", \"(.*)\")",
+          "legendFormat": "{{volume}}",
           "refId": "A"
         }
       ],
@@ -283,8 +283,8 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"}",
-          "legendFormat": "{{mountpoint}}",
+          "expr": "node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"} * on(mountpoint) group_left(volume) lilnas_storage_volume or on(mountpoint) label_replace(node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"}, \"volume\", \"$1\", \"mountpoint\", \"(.*)\")",
+          "legendFormat": "{{volume}}",
           "refId": "A"
         }
       ],
@@ -436,13 +436,13 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "irate(node_disk_read_bytes_total{device=~\"sd.*|nvme.*|vd.*|xvd.*\"}[5m])",
-          "legendFormat": "{{device}} read",
+          "expr": "irate(node_disk_read_bytes_total{device=~\"sd.*|nvme.*|vd.*|xvd.*\"}[5m]) * on(device) group_left(volume) group by(device, volume)(label_replace(node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"} * on(mountpoint) group_left(volume) lilnas_storage_volume, \"device\", \"$1\", \"device\", \"/dev/(nvme[0-9]+n[0-9]+|[a-z]+)p?[0-9]*\")) or on(device) label_replace(irate(node_disk_read_bytes_total{device=~\"sd.*|nvme.*|vd.*|xvd.*\"}[5m]), \"volume\", \"$1\", \"device\", \"(.*)\")",
+          "legendFormat": "{{volume}} read",
           "refId": "A"
         },
         {
-          "expr": "-irate(node_disk_written_bytes_total{device=~\"sd.*|nvme.*|vd.*|xvd.*\"}[5m])",
-          "legendFormat": "{{device}} write",
+          "expr": "-(irate(node_disk_written_bytes_total{device=~\"sd.*|nvme.*|vd.*|xvd.*\"}[5m]) * on(device) group_left(volume) group by(device, volume)(label_replace(node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"} * on(mountpoint) group_left(volume) lilnas_storage_volume, \"device\", \"$1\", \"device\", \"/dev/(nvme[0-9]+n[0-9]+|[a-z]+)p?[0-9]*\")) or on(device) label_replace(irate(node_disk_written_bytes_total{device=~\"sd.*|nvme.*|vd.*|xvd.*\"}[5m]), \"volume\", \"$1\", \"device\", \"(.*)\"))",
+          "legendFormat": "{{volume}} write",
           "refId": "B"
         }
       ],
@@ -476,13 +476,13 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "irate(node_disk_reads_completed_total{device=~\"sd.*|nvme.*|vd.*|xvd.*\"}[5m])",
-          "legendFormat": "{{device}} reads",
+          "expr": "irate(node_disk_reads_completed_total{device=~\"sd.*|nvme.*|vd.*|xvd.*\"}[5m]) * on(device) group_left(volume) group by(device, volume)(label_replace(node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"} * on(mountpoint) group_left(volume) lilnas_storage_volume, \"device\", \"$1\", \"device\", \"/dev/(nvme[0-9]+n[0-9]+|[a-z]+)p?[0-9]*\")) or on(device) label_replace(irate(node_disk_reads_completed_total{device=~\"sd.*|nvme.*|vd.*|xvd.*\"}[5m]), \"volume\", \"$1\", \"device\", \"(.*)\")",
+          "legendFormat": "{{volume}} reads",
           "refId": "A"
         },
         {
-          "expr": "-irate(node_disk_writes_completed_total{device=~\"sd.*|nvme.*|vd.*|xvd.*\"}[5m])",
-          "legendFormat": "{{device}} writes",
+          "expr": "-(irate(node_disk_writes_completed_total{device=~\"sd.*|nvme.*|vd.*|xvd.*\"}[5m]) * on(device) group_left(volume) group by(device, volume)(label_replace(node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"} * on(mountpoint) group_left(volume) lilnas_storage_volume, \"device\", \"$1\", \"device\", \"/dev/(nvme[0-9]+n[0-9]+|[a-z]+)p?[0-9]*\")) or on(device) label_replace(irate(node_disk_writes_completed_total{device=~\"sd.*|nvme.*|vd.*|xvd.*\"}[5m]), \"volume\", \"$1\", \"device\", \"(.*)\"))",
+          "legendFormat": "{{volume}} writes",
           "refId": "B"
         }
       ],
@@ -516,8 +516,8 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "irate(node_disk_io_time_seconds_total{device=~\"sd.*|nvme.*|vd.*|xvd.*\"}[5m]) * 100",
-          "legendFormat": "{{device}}",
+          "expr": "(irate(node_disk_io_time_seconds_total{device=~\"sd.*|nvme.*|vd.*|xvd.*\"}[5m]) * on(device) group_left(volume) group by(device, volume)(label_replace(node_filesystem_size_bytes{fstype!~\"tmpfs|overlay|squashfs|devtmpfs|fuse.lxcfs\"} * on(mountpoint) group_left(volume) lilnas_storage_volume, \"device\", \"$1\", \"device\", \"/dev/(nvme[0-9]+n[0-9]+|[a-z]+)p?[0-9]*\")) or on(device) label_replace(irate(node_disk_io_time_seconds_total{device=~\"sd.*|nvme.*|vd.*|xvd.*\"}[5m]), \"volume\", \"$1\", \"device\", \"(.*)\")) * 100",
+          "legendFormat": "{{volume}}",
           "refId": "A"
         }
       ],

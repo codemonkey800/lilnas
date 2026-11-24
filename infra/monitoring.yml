@@ -104,11 +104,26 @@ services:
       - --path.sysfs=/host/sys
       - --path.rootfs=/host/rootfs
       - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+      - --collector.textfile.directory=/textfile
     volumes:
       - /proc:/host/proc:ro
       - /sys:/host/sys:ro
       - /:/host/rootfs:ro
+      - node-exporter-textfile:/textfile:ro
     pid: host
+
+  # Writes the /storage/<name> symlink map for node-exporter's textfile
+  # collector, so the Storage dashboard labels mounts by name.
+  storage-volumes:
+    image: busybox:1.37.0
+    restart: unless-stopped
+    logging: *default-logging
+    init: true
+    entrypoint: ['/bin/sh', '/storage-volumes.sh']
+    volumes:
+      - ./monitoring/storage-volumes.sh:/storage-volumes.sh:ro
+      - /storage:/storage:ro
+      - node-exporter-textfile:/textfile
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.55.1
@@ -123,3 +138,6 @@ services:
       - /sys:/sys:ro
       - /var/lib/docker:/var/lib/docker:ro
       - /cgroup:/cgroup:ro
+
+volumes:
+  node-exporter-textfile:
