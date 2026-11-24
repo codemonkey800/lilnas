@@ -601,7 +601,7 @@ phases:
         after:
           - H5
         files: []
-        status: todo
+        status: approved
         body: |-
           Push 1 is live except for tdr-bot. The exporters, Immich telemetry, the cleaned-up
           dashboards and the `lilnas_monitor` role are deployed and verified (19 of 19 scrape

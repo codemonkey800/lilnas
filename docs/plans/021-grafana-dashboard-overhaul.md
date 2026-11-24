@@ -624,3 +624,6 @@ docs/monitoring.md lists all 11 dashboards. Disk Health, Media Stack and Postgre
 
 ### 2026-11-24 · H2 · approved
 Approved.
+
+### 2026-11-24 · H6 · approved
+Approved.
