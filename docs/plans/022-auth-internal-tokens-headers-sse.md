@@ -229,3 +229,18 @@ Research on 2026-11-26 at `main` ebedb27c.
 - Checks, all passing: builds plus utils/auth/download/dev/icloud-backup lint and type-check; auth jest 975/975; utils src/auth 20; download src/auth 112; dev src/activity 21; icloud-backup src/auth 24; prettier -c on the four listed files; sh -n reaper.sh; secrets verify exit 0.
 - README env table was realigned by prettier (the new key widened the column). .env.example has no prettier parser, before and after.
 - Temp dirs from the revert runs were removed. No containers were created.
+
+### 2026-11-26 · T3 · done
+- Live rig: 35 of 35 rows PASS, twice on the same image (hardening-rig-auth:86f2aef7, built once from this worktree with no other build or jest run going). Traefik v3.7.15, node v26.12.0.
+- Main risk is clear: closing one SSE client through Traefik and the Next rewrite frees its slot. A new request was 200 after 5 ms, right after the 7th stream got 429. Extra row 4e: after all six are closed, six fresh streams open in 26 ms, so no slot leaks.
+- Headers come only from Traefik; the frontend sets none of the four itself. They are on 200, 404 and the in-flight 429. HSTS is exactly max-age=31536000. No x-powered-by, direct or via Traefik.
+- In-flight limit: with amount 3 and ipstrategy depth=0, client B (other IP) got 200 while A was refused. With the ipstrategy line removed, B got 429 too, which confirms the limit becomes global for the host without it.
+- Cookie drop: `customrequestheaders.Cookie=` (empty value) removes every Cookie header on HTTP/1.1 cleartext, HTTP/1.1 TLS and HTTP/2 TLS, for cookies in one header or two, and on ws and wss upgrades. Authorization and X-Emby-Token arrive unchanged. The control router passes the cookies.
+- Sign-in: POST /api/auth/sign-in/social returns 200 with an accounts.google.com URL. Only cookie set: __Secure-lilnas-auth.state.
+- Production Traefik: 0 lines with `rig-` in `--since 5m` and 0 errors since rig start, checked after the rig came up and again after the matrix, in both runs.
+- Two label changes beyond the task's list, both in labels.mjs: traefik.enable is dropped, and tls.certresolver=le becomes tls=true because the rig has no resolver.
+- Case 3 holds open SSE streams, because an open stream counts as in flight until it closes. In production every open stream also counts against the 64-per-IP limit, well above the 6-per-user cap.
+- echo.mjs now also reports authorizationPresent and embyTokenPresent, plus the values only with ECHO_VALUES=1. The cookie-rig README is updated to match.
+- Teardown shown: 0 containers, networks, images or volumes named hardening-rig, and none named rig-; no /tmp/hardening-rig* left; image removed.
+- Checks, all passing: builds plus lint and type-check for utils, auth, download, dev and icloud-backup. Jest: auth 987, utils src/auth 20, download src/auth 112, dev src/activity 21, icloud-backup src/auth 24. prettier -c on the four files, sh -n reaper.sh, secrets verify exit 0.
+- No spec is added. The task is a live check and its result is the table above. The rig's own controls (ipstrategy removed, keep router) show it can fail.
