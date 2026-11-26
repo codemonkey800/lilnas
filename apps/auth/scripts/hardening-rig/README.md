@@ -85,3 +85,43 @@ The production Traefik watches the same Docker daemon, so:
 Case 3 holds open SSE streams because an open stream counts as an in-flight
 request until it closes. This also means that in production, every open
 stream counts against the 64-per-IP limit.
+
+## Internal tokens (`tokens.sh`)
+
+A second, separate check for the per-caller internal tokens. It runs each
+real client against a real backend, first enforcing, then observing. Nothing
+here is routed: no Traefik, and no container carries any `traefik.*` label.
+
+| File                | What it is                                                                                                                                                                                                                      |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tokens.sh`         | Builds the auth image (or reuses `RIG_IMAGE`), runs the backend with `INTERNAL_TOKEN_ENFORCE=true` and then without it, runs the checks, prints the table and always tears down. Exit 1 on any failed row.                      |
+| `tokens-client.mjs` | `clients`: the built `AuthClient` (`packages/utils/dist`) and `HostActivityService` (`apps/dev/dist`) in a container on the rig network. `log`: checks the backend's `internal-auth` lines against the requests made, in order. |
+
+```bash
+pnpm --filter @lilnas/utils build
+(cd apps/dev && pnpm exec nest build -b swc)
+apps/auth/scripts/hardening-rig/tokens.sh
+```
+
+Containers are named `tokens-rig-<hex>-*` on network `tokens-rig-<hex>-net`
+and publish no ports:
+
+- `auth`: the image's `node dist/main`, a throwaway SQLite file, rig values
+  for every secret, and five fresh `openssl rand -hex 32` test tokens (one per
+  caller plus `wrong`, held by none). Its env comes from an `--env-file` in
+  the temp dir, so no token is on a command line.
+- `client`: the auth image's node, this checkout mounted read-only at its own
+  path, the token files mounted read-only.
+- `reaper`: the local `lilnas-dev-idle-reaper` image (alpine, curl, jq) with
+  `sh` as entrypoint and no Docker socket. It runs `fetch_host_activity`,
+  copied verbatim out of `apps/dev-idle-reaper/reaper.sh` with `sed`.
+
+| Check                 | Enforcing                                                                                                                     | Observing               |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| download token        | `checkIsAdmin`, `getDiscordLink`, `registerDiscordIdentity` resolve                                                           | same                    |
+| icloud-backup token   | `checkIsAdmin` resolves; `registerDiscordIdentity` rejects with 403                                                           | both resolve            |
+| no token, wrong token | every `AuthClient` method rejects with 401                                                                                    | all resolve             |
+| `HostActivityService` | dev token: an activity object; no token: `null`                                                                               | both an activity object |
+| `fetch_host_activity` | reaper token succeeds; none and the download token fail                                                                       | all succeed             |
+| backend log           | 16 `internal-auth` lines, one per request, with the expected `outcome`, `caller`, `scope` and `enforced`; no token, no bearer | same, `enforced=false`  |
+| open routes           | `/health` 200, `/verify` 302 to `/login` (forwarded host/proto, no cookie), `/strip-cookie` 200, none logged by the guard     | same                    |
