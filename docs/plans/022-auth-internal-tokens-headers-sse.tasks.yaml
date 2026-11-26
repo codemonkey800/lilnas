@@ -67,7 +67,8 @@ phases:
           - apps/auth/src/env.ts
           - apps/auth/.env.example
           - apps/auth/README.md
-        status: todo
+        status: done
+        commit: 4e3f470a182cd2a0a53327c72c186fad1cd3a65b
         body: |-
           `GET /sse/pending` (`apps/auth/src/sse/sse.controller.ts`, public as `/api/sse/pending`
           through the Next rewrite) gives anyone, signed in or not, an endless keepalive stream.

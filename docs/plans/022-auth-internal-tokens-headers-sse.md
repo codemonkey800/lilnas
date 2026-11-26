@@ -218,3 +218,14 @@ Research on 2026-11-26 at `main` ebedb27c.
 - The new spec auth-router-hardening.spec.ts (backend project) parses the YAML the same way frontend-isolation.spec.ts does. Shown to fail when each behaviour is reverted: order swap 1 failed; ipstrategy removed 1 failed; stspreload added 1 failed; `lilnas-auth` in a name 4 failed; poweredByHeader removed 3 failed.
 - All checks pass: lint and type-check; jest auth 955, utils 20, download 112, dev 21, icloud-backup 24; prettier; sh -n; secrets verify.
 - No containers were created. Temp files: two /tmp backups, removed at the end of the revert run.
+
+### 2026-11-26 · T2 · done
+- /sse/pending: 401 JSON with no session, 400 when host is missing/empty/whitespace (both before any slot is taken), 429 'Too many open streams' at the cap, otherwise the same merged data + keepalive stream as before.
+- /sse/admin: AdminGuard unchanged (401/403). The handler is now async, resolves the session again for the userId, and applies the same cap. One count per user, shared across both routes.
+- SseStreamLimiter is provided in SseModule (module-local). The cap comes from SSE_MAX_STREAMS_PER_USER, read once at construction; only a positive integer is accepted, anything else means 6. Extras beyond the specified interface: `cap`, `trackedUsers()`, exported `parseMaxStreams`.
+- Release is idempotent and bound to both finalize() on the returned Observable and req.once('close'). It is also released at once if req.socket is already destroyed. The map entry is deleted at zero.
+- Client behaviour (pending-client.tsx and admin-dashboard-client.tsx read, not changed): a signed-out pending tab gets 401, the browser closes the EventSource for good, the error handler rechecks immediately and rebuilds every 5 s (each rebuild gets another 401), and the 30 s poll keeps running. It no longer gets an endless keepalive stream. A seventh tab gets 429 and behaves the same way until a slot frees, then its next 5 s rebuild gets a stream.
+- Revert proof (specs failing of 42): no-session keepalive 2; cap removed 15; close-release removed 1; close+teardown release removed 13; non-idempotent release 4; blank host allowed 6. The limiter spec's fill() helper is bounded at 100 so a broken cap fails instead of hanging.
+- Checks, all passing: builds plus utils/auth/download/dev/icloud-backup lint and type-check; auth jest 975/975; utils src/auth 20; download src/auth 112; dev src/activity 21; icloud-backup src/auth 24; prettier -c on the four listed files; sh -n reaper.sh; secrets verify exit 0.
+- README env table was realigned by prettier (the new key widened the column). .env.example has no prettier parser, before and after.
+- Temp dirs from the revert runs were removed. No containers were created.
