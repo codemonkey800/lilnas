@@ -13,6 +13,7 @@ import {
   DiscordLinkLookupController,
 } from './internal/discord-internal.controller'
 import { HostActivityController } from './internal/host-activity.controller'
+import { InternalTokenGuard } from './internal/internal-token.guard'
 import { pinoHttpOptions } from './logger.config'
 import { MeController } from './me/me.controller'
 import { OidcClientsService } from './oidc/oidc-clients.service'
@@ -58,6 +59,7 @@ import { VerifyService } from './verify/verify.service'
     VerifyService,
     RequestsService,
     AdminGuard,
+    InternalTokenGuard,
     ServiceRegistryService,
     GatedHostsService,
     HostActivityService,

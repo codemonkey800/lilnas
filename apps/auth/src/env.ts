@@ -82,4 +82,15 @@ export const EnvKeys = {
   // ADMIN_EMAILS default above: this path should degrade to "cross-origin
   // callers get nothing," never take the route down.
   PROFILE_ALLOWED_ORIGINS: 'PROFILE_ALLOWED_ORIGINS',
+  // One bearer token per internal caller (src/internal/internal-callers.ts).
+  // Each is the value that caller sends as AUTH_INTERNAL_TOKEN. Unset or
+  // shorter than 32 characters disables that caller; two callers with the
+  // same value are both disabled. Read per request by InternalTokenGuard.
+  INTERNAL_TOKEN_DOWNLOAD: 'INTERNAL_TOKEN_DOWNLOAD',
+  INTERNAL_TOKEN_ICLOUD_BACKUP: 'INTERNAL_TOKEN_ICLOUD_BACKUP',
+  INTERNAL_TOKEN_DEV: 'INTERNAL_TOKEN_DEV',
+  INTERNAL_TOKEN_DEV_IDLE_REAPER: 'INTERNAL_TOKEN_DEV_IDLE_REAPER',
+  // Exactly `true` makes InternalTokenGuard reject (401/403). Anything else,
+  // including unset, `1` or `TRUE`, only logs: observe mode.
+  INTERNAL_TOKEN_ENFORCE: 'INTERNAL_TOKEN_ENFORCE',
 } as const

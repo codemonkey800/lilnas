@@ -1,7 +1,18 @@
-import { BadRequestException, Controller, Get, Query } from '@nestjs/common'
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Query,
+  UseGuards,
+} from '@nestjs/common'
 
 import { HostActivityService } from 'src/services/host-activity.service'
 import { normalizeHost } from 'src/services/normalize-host'
+
+import {
+  InternalTokenGuard,
+  RequireInternalScope,
+} from './internal-token.guard'
 
 // Longest window a caller can ask about. host_visit rows never age out, so
 // there is no hard limit; this just rejects nonsense.
@@ -17,19 +28,23 @@ export type HostActivityResponse = {
   lastVisitAt: string | null
 }
 
-// Guard-free by design, exactly like discord-internal.controller.ts — see
-// that file's comment for the full precedent: port 8081 has no Traefik router
-// and publishes no host port, so only containers on the shared Docker network
-// (the dev-idle-reaper) can reach it. The network is the trust boundary.
+// Port 8081 has no Traefik router and publishes no host port, so only
+// containers on the shared Docker network reach this. That network is not the
+// only control: InternalTokenGuard identifies the caller by its bearer token
+// and requires `host-activity:read` (apps/dev and the dev-idle-reaper, see
+// internal-callers.ts). It rejects only when INTERNAL_TOKEN_ENFORCE=true;
+// otherwise it allows and logs.
 //
 // Always HTTP 200 when this app answers, with `activeUsers: 0` for a host it
 // has never seen — a 404 is left to mean "this auth deploy predates the
 // route", which lets the reaper tell a missing route from a real zero.
+@UseGuards(InternalTokenGuard)
 @Controller('internal')
 export class HostActivityController {
   constructor(private readonly hostActivity: HostActivityService) {}
 
   @Get('host-activity')
+  @RequireInternalScope('host-activity:read')
   hostActivityFor(
     @Query('host') rawHost?: string,
     @Query('hours') rawHours?: string,

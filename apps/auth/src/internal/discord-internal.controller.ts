@@ -11,6 +11,7 @@ import {
   Inject,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common'
 import type { z } from 'zod'
 
@@ -24,6 +25,10 @@ import {
 } from 'src/db/discord-link.repo'
 
 import { RegisterDiscordIdentityBodySchema } from './discord-internal.dto'
+import {
+  InternalTokenGuard,
+  RequireInternalScope,
+} from './internal-token.guard'
 
 // ──────────────────────────────────────────────────────────────────────────────
 // The Discord half of this app's INTERNAL (server-to-server) surface. Two
@@ -67,15 +72,18 @@ function present(value: string | undefined): string | undefined {
 
 const NOT_FOUND: DiscordLinkLookupResponse = { identity: null, user: null }
 
-// Guard-free by design, exactly like admin/admin-check.controller.ts — see
-// that file's comment for the full precedent. The short version: port 8081
-// (where every one of this app's Nest routes lives) has no Traefik router at
-// all and publishes no host port, so it is reached only container-to-container
-// on the shared Docker network, the same mechanism Traefik's own
-// forwardauth.address=http://auth:8081/verify uses. The network IS the trust
-// boundary here; there is no session cookie to check because the callers
-// (apps/download's DiscordLinkService, apps/tdr-bot) are servers with no
-// session of their own.
+// Port 8081 (where every one of this app's Nest routes lives) has no Traefik
+// router and publishes no host port, so it is reached only container-to-
+// container on the shared Docker network, the same way Traefik's own
+// forwardauth.address=http://auth:8081/verify is. There is no session cookie
+// to check because the callers (apps/download's DiscordLinkService,
+// apps/tdr-bot) are servers with no session of their own.
+//
+// The network is not the only control: InternalTokenGuard identifies the
+// caller by its bearer token and requires `discord-link:read` here
+// (internal-callers.ts). It rejects only when INTERNAL_TOKEN_ENFORCE=true;
+// otherwise it allows and logs.
+@UseGuards(InternalTokenGuard)
 @Controller('internal')
 export class DiscordLinkLookupController {
   constructor(@Inject(DB) private readonly db: Db) {}
@@ -91,6 +99,7 @@ export class DiscordLinkLookupController {
   // "this auth deploy predates the route", which is what lets a caller that
   // fails open tell deploy skew apart from a real answer.
   @Get('discord-link')
+  @RequireInternalScope('discord-link:read')
   discordLink(
     @Query('discordUserId') rawDiscordUserId?: string,
     @Query('userId') rawUserId?: string,
@@ -165,12 +174,13 @@ export class DiscordLinkLookupController {
   }
 }
 
-// The ONE write endpoint on this app's internal surface, and the reason it is
-// split into its own guard-free class rather than hidden among the reads:
-// everything said above about the trust boundary applies here too, which means
-// ANY container on the shared Docker network can call this and append to (or
-// relabel a row in) the discord_identity roster. That is accepted
-// deliberately, so the blast radius is worth stating plainly.
+// The ONE write endpoint on this app's internal surface, split into its own
+// class so its scope, `discord-identity:write`, stands apart from the reads:
+// only `download` holds it (internal-callers.ts). While
+// INTERNAL_TOKEN_ENFORCE is not `true`, InternalTokenGuard only logs, and ANY
+// container on the shared Docker network can still call this and append to
+// (or relabel a row in) the discord_identity roster. The blast radius of that
+// is worth stating plainly.
 //
 // What a rogue caller on the network could do: create a roster entry for a
 // snowflake nobody has seen, or overwrite the cached username/displayName of
@@ -190,6 +200,7 @@ export class DiscordLinkLookupController {
 // linking it. The schema's "never accept a hand-typed Discord handle" rule
 // (schema.ts) is what keeps that outcome bounded: labels are cosmetic, and
 // nothing in this system keys off them.
+@UseGuards(InternalTokenGuard)
 @Controller('internal')
 export class DiscordIdentityController {
   constructor(@Inject(DB) private readonly db: Db) {}
@@ -206,6 +217,7 @@ export class DiscordIdentityController {
   // best-effort on the caller's side. The distinction still exists in the repo
   // for the admin-notification consumer that wants it.
   @Post('discord-identity')
+  @RequireInternalScope('discord-identity:write')
   registerIdentity(@Body() body: unknown): { ok: true } {
     const input = parseBody(RegisterDiscordIdentityBodySchema, body)
 
