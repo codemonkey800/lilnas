@@ -244,3 +244,6 @@ Research on 2026-11-26 at `main` ebedb27c.
 - Teardown shown: 0 containers, networks, images or volumes named hardening-rig, and none named rig-; no /tmp/hardening-rig* left; image removed.
 - Checks, all passing: builds plus lint and type-check for utils, auth, download, dev and icloud-backup. Jest: auth 987, utils src/auth 20, download src/auth 112, dev src/activity 21, icloud-backup src/auth 24. prettier -c on the four files, sh -n reaper.sh, secrets verify exit 0.
 - No spec is added. The task is a live check and its result is the table above. The rig's own controls (ipstrategy removed, keep router) show it can fail.
+
+### 2026-11-26 · H1 · approved
+emby uses no cookies. Signed-in emby.lilnas.io shows only __Secure-lilnas-auth.session_token (.lilnas.io) in DevTools cookies. No Emby-owned DLL in emby/embyserver:4.10.1.0 contains a Set-Cookie string (only bundled .NET/ServiceStack libs). Emby gets the cookie-drop middleware in T13.

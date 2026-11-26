@@ -218,7 +218,7 @@ phases:
         title: Check whether a signed-in Emby web session uses cookies
         after: []
         files: []
-        status: todo
+        status: approved
         body: |-
           This decides whether emby gets the cookie-drop middleware in phase 4. That middleware
           deletes every cookie on requests to emby, so it is only safe if Emby uses none.
