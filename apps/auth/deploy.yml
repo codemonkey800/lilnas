@@ -53,6 +53,10 @@ services:
       # Host directory must be owned by UID 1000 (the `node` user inside the
       # container). On a fresh host run:
       #   sudo chown 1000:1000 /storage/app-data/lilnas-auth
+      #   chmod 700 /storage/app-data/lilnas-auth && chmod 600 /storage/app-data/lilnas-auth/lilnas-auth.db*
+      # Mode 700 on the directory and 600 on the database files: the
+      # database holds emails, session tokens and Google OAuth tokens, and
+      # other host accounts must not read it.
       # Without this, better-sqlite3 throws SQLITE_CANTOPEN on first boot and
       # the container restarts forever. database.module.ts's openSqlite()
       # catches this and prints this same diagnostic (mirrors
@@ -174,3 +178,19 @@ services:
       - traefik.http.routers.auth.tls.certresolver=le
       - traefik.http.routers.auth.priority=1000
       - traefik.http.services.auth.loadbalancer.server.port=8080
+      # auth-security-headers: HSTS, X-Frame-Options: DENY, nosniff and a
+      # frame-ancestors CSP so the sign-in pages can't be framed or sniffed.
+      # HSTS covers this host only: no stsincludesubdomains, no stspreload.
+      # auth-inflight: at most 64 concurrent requests per source IP. The
+      # ipstrategy line is required: Traefik's default source criterion
+      # groups by request host, which would make 64 a global limit for
+      # auth.lilnas.io. The headers middleware comes first so a 429 from
+      # the limit also carries the headers. Neither name may contain
+      # `lilnas-auth` (apps/dev's compose-file.ts treats that as gated).
+      - traefik.http.routers.auth.middlewares=auth-security-headers,auth-inflight
+      - traefik.http.middlewares.auth-security-headers.headers.stsseconds=31536000
+      - traefik.http.middlewares.auth-security-headers.headers.framedeny=true
+      - traefik.http.middlewares.auth-security-headers.headers.contenttypenosniff=true
+      - traefik.http.middlewares.auth-security-headers.headers.contentsecuritypolicy=frame-ancestors 'none'
+      - traefik.http.middlewares.auth-inflight.inflightreq.amount=64
+      - traefik.http.middlewares.auth-inflight.inflightreq.sourcecriterion.ipstrategy.depth=0

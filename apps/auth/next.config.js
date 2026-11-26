@@ -23,6 +23,9 @@ function nextConfig(phase) {
   return {
     output: 'standalone',
 
+    // No `x-powered-by: Next.js` response header.
+    poweredByHeader: false,
+
     // better-sqlite3 is a native addon and can't survive being bundled by
     // Next's server compiler (matches apps/swole/next.config.ts and
     // apps/tdr-code/next.config.js, which hit this same requirement). Nothing
