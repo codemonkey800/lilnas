@@ -247,3 +247,6 @@ Research on 2026-11-26 at `main` ebedb27c.
 
 ### 2026-11-26 · H1 · approved
 emby uses no cookies. Signed-in emby.lilnas.io shows only __Secure-lilnas-auth.session_token (.lilnas.io) in DevTools cookies. No Emby-owned DLL in emby/embyserver:4.10.1.0 contains a Set-Cookie string (only bundled .NET/ServiceStack libs). Emby gets the cookie-drop middleware in T13.
+
+### 2026-11-26 · H2 · approved
+Done. /storage/app-data/lilnas-auth is 700, lilnas-auth.db/-shm/-wal are 600. The October copy was moved (not deleted) to /storage/backups/lilnas-auth/ (dir 700, file 600). lilnas-auth-1 is Up (healthy); download.lilnas.io returns 302 to sign-in.

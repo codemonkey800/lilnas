@@ -241,7 +241,7 @@ phases:
         title: Tighten the auth database directory on the host
         after: []
         files: []
-        status: todo
+        status: approved
         body: |-
           `/storage/app-data/lilnas-auth` is mode 755 and its files 644, so any host account can
           read emails, session tokens and Google OAuth tokens. There is also a stale copy,
