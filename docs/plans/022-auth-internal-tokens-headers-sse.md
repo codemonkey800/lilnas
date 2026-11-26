@@ -292,3 +292,23 @@ Checked:
 
 ### 2026-11-26 · H3 · approved
 Approved.
+
+### 2026-11-26 · T4 · done
+Pushed 914450718990ea8b8912beedd61b456685db8c7f to main (fast-forward from ebedb27c).
+Rollback sha: ebedb27c570a2bb1ed722beb569b54ba6a774d67.
+CI run: https://github.com/codemonkey800/lilnas/actions/runs/45892634636 (green; build-images auth + deploy succeeded, image not held back).
+Pre-push: origin/main ancestor OK; diff only apps/auth/** + docs/plans/** (20 files); deploy.yml has auth-security-headers/auth-inflight, next.config.js poweredByHeader:false, sse-stream-limiter.service.ts present; internal-token.guard.ts absent; ci detect -> image auth only.
+Production:
+- lilnas-auth-1 / lilnas-auth-frontend-1 recreated 20:44:29Z, healthy, image revision 91445071; auth logs 0 errors.
+- Traefik: 24 ERR at 20:44:29-30Z only, all lilnas-auth@docker ForwardAuth failing to reach auth:8081/verify during the container restart (no such host / connection refused); none name the auth router or the new middlewares; none after.
+- /login 200 with HSTS max-age=31536000, XFO DENY, nosniff, CSP frame-ancestors 'none', no x-powered-by.
+- /api/sse/pending 401 in 0.023s; /api/sse/admin 401 in 0.019s.
+- 20 parallel /login -> 20x200.
+- /api/auth/ok 200, openid-configuration 200; /verify /strip-cookie /internal/host-activity /admin/check /me /health /requests/status all 404; sonarr 302 -> auth.lilnas.io/login?redirect=...
+- sign-in/social google -> 200, accounts.google.com URL; cookie __Secure-lilnas-auth.state (Max-Age=300; Domain=.lilnas.io; Path=/; HttpOnly; Secure; SameSite=Lax), value masked.
+All six plan checks pass (jest: auth 987/987, utils 20/20, download 112/112, dev 21/21, icloud-backup 24/24).
+Temp files /tmp/t4-* removed; tree clean.
+Rollback for the human: revert ebedb27c..91445071 on main and push; or backend only:
+cd /opt/lilnas && sudo -u deploy env LILNAS_TAG=ebedb27c570a2bb1ed722beb569b54ba6a774d67 docker compose up -d auth
+
+No commits: nothing to integrate.
