@@ -466,3 +466,31 @@ All plan checks pass:
 - prettier ok, sh -n ok, secrets verify rc=0.
 Temp logs /tmp/t8-* removed. No containers were created. No .decrypted file was
 created.
+
+### 2026-11-26 · T9 · done
+Live check: 78/78 rows PASS, 0 FAIL, no defects. Every production caller keeps access once enforcing,
+as long as it holds its own token.
+- Rig: new apps/auth/scripts/hardening-rig/tokens.sh + tokens-client.mjs (README "Internal tokens" section).
+  The existing rig.sh is Traefik-specific, so this is a separate script beside it. It has no Traefik and
+  no traefik.* labels. It runs the backend with INTERNAL_TOKEN_ENFORCE=true, then restarts it without
+  the variable.
+- Needs packages/utils/dist and apps/dev/dist built first (header and README show the commands).
+  apps/dev/dist comes from `nest build -b swc`; the built HostActivityService is required unmodified.
+- Reaper check uses the local ghcr.io/codemonkey800/lilnas-dev-idle-reaper:latest image (alpine 3.24.2,
+  curl, jq) with entrypoint sh and no Docker socket. Plain alpine:3.24 has no curl or jq, and apk would
+  need network access. fetch_host_activity is copied verbatim from reaper.sh with sed.
+- Tokens are new per run (openssl rand -hex 32). They reach the backend via --env-file and the
+  clients/reaper via read-only token files, never on a command line.
+- Observed:
+  - enforcing: icloud register gives 403; no token or a wrong token gives 401 on all three
+    AuthClient methods; HostActivityService with no token gives null; reaper with no token or the
+    download token gives rc=1.
+  - observing: all of those succeed.
+  - both modes: 16 internal-auth lines for 16 requests, each with the expected
+    outcome/caller/scope/enforced; 0 log lines contain a token or a bearer value; /health 200,
+    /verify 302 to /login, /strip-cookie 200, none logged by the guard.
+- Spec-revert evidence: not applicable. This task adds a live check script, no specs or behaviour.
+- Teardown shown: containers 0, networks 0, image 0, temp dir gone. apps/dev/dist and /tmp/t9-*
+  removed too.
+- Checks: both lint/type-check groups rc=0; jest auth 1085/1085, utils 34/34, download 112/112,
+  dev 26/26, icloud-backup 24/24; prettier ok; sh -n ok; secrets verify rc=0.

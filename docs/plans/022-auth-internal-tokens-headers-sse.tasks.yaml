@@ -638,7 +638,8 @@ phases:
           - T7
         files:
           - apps/auth/scripts/hardening-rig/
-        status: todo
+        status: done
+        commit: 6a4a7ac60cf85057016b165c868fcd3ed2a6e26f
         body: |-
           The guard's specs and the clients' specs each fake the other side. Run the real pieces
           against each other in throwaway containers, with test tokens (never a production one),
