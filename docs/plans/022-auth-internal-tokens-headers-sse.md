@@ -433,3 +433,36 @@ the wiring task adds it.
 All six checks pass: lint/type-check groups rc=0; jest auth 987/987, utils
 20/20, download 112/112, dev 26/26, icloud-backup 24/24; prettier clean;
 sh -n ok; secrets verify rc=0.
+
+### 2026-11-26 · T8 · done
+Four tokens from `openssl rand -hex 32`. Each was set in one shell function with
+the value only in a variable (unset afterwards), into auth's INTERNAL_TOKEN_* and
+the caller's AUTH_INTERNAL_TOKEN. INTERNAL_TOKEN_ENFORCE is in no .env.prod.
+Verification (lengths and counts only):
+- secrets verify exit 0, 21 files discovered.
+- grep -c encrypted: is 1 for each of the 8 keys.
+- dotenvx get length is 64 for all 8.
+- All 4 pairs are equal; 4 of 4 tokens are distinct (sha256 compared in the shell).
+- git status shows no .env.keys or .decrypted file.
+- ci detect: decrypt true; decryptServices has auth, download, icloud-backup,
+  dev-dashboard and dev-idle-reaper, and not auth-frontend or icloud-backup-frontend.
+Compose:
+- apps/dev/deploy.yml: dev-dashboard has `env_file: [.env.prod.decrypted]` in the
+  file's list style. The header comment now names AUTH_INTERNAL_TOKEN as its one secret.
+- apps/dev-idle-reaper/deploy.yml: same env_file, with a comment that it carries
+  the auth token.
+- No other compose file changed.
+New files: each starts with the 5-line dotenvx header and public-key line copied
+verbatim from apps/download/.env.prod, shared PROD key. No new private key.
+Docs: docs/deploy.md count 19 -> 21, and the apps/{...} list now includes dev and
+dev-idle-reaper.
+Fix outside the plan's jest paths: apps/icloud-backup/src/__tests__/deploy.spec.ts
+checks the exact key list of icloud-backup's .env.prod. It failed (1 failed)
+after AUTH_INTERNAL_TOKEN was added and now expects five keys; 54/54 pass.
+All plan checks pass:
+- c1 and c2 rc=0.
+- jest auth 1085/1085, utils 34/34, download 112/112, dev 43/43 (activity +
+  registry), icloud-backup 54/54; cli compose-include-env + ci-detect 74/74.
+- prettier ok, sh -n ok, secrets verify rc=0.
+Temp logs /tmp/t8-* removed. No containers were created. No .decrypted file was
+created.

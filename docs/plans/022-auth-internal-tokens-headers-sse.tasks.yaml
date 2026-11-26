@@ -573,7 +573,8 @@ phases:
           - apps/dev-idle-reaper/.env.prod
           - apps/dev-idle-reaper/deploy.yml
           - docs/deploy.md
-        status: todo
+        status: done
+        commit: 569b99d2d747ce8f841d4f698c94164b0231ca4d
         body: |-
           Create one random token per caller and store each in two encrypted env files: auth's,
           under the caller's `INTERNAL_TOKEN_*` name, and the caller's own, as
