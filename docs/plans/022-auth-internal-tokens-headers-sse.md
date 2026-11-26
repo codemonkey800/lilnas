@@ -289,3 +289,6 @@ Checked:
 - AdminGuard in the HTTP spec uses a different AccessCacheService method than the fake provides — apps/auth/src/admin/admin.guard.ts:45: The guard calls resolveSession(req.headers.cookie), the only method the fake implements.
 - env() throws for an unset SSE_MAX_STREAMS_PER_USER — packages/utils/src/env.ts: The '' default is used, so unset means '' and then 6, with no throw.
 - Other code constructs SseController with the old two-argument constructor — apps/auth/src (non-test): None found; Nest DI injects it and SseModule provides SseStreamLimiter.
+
+### 2026-11-26 · H3 · approved
+Approved.

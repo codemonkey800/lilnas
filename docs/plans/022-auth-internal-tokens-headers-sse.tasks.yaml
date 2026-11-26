@@ -275,7 +275,7 @@ phases:
         after:
           - T3
         files: []
-        status: todo
+        status: approved
         body: |-
           Approving lets the next task push phase 1 to `main`. CI rebuilds the auth image and
           redeploys `auth` and `auth-frontend`.
