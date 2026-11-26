@@ -396,3 +396,40 @@ Temp logs /tmp/t6-* removed. No containers created.
 - Mutation evidence (each applied to the guard alone and reverted; failures in the two new spec files): enforce on any set value 8, no length check 2, no duplicate disabling 3, no scope check 21, unscoped handler allowed 4, case-sensitive scheme 3, loose shape 3, 401 instead of 403 4… actually 11, observe mode rejecting 23, header in log line 1, startup throw on duplicates 1. Swapping timingSafeEqual for === cannot be seen in behaviour, so it is checked by review only.
 - README: new "Internal routes" section (caller/scope tables, header, observe/enforce, adding a caller), 5 env rows, Residual risk paragraph updated. Prettier re-padded the existing env table columns.
 - Temp files /tmp/t5-c1.log and /tmp/t5-c2.log removed. No containers were created.
+
+### 2026-11-26 · T7 · done
+apps/dev: fetchActivity reads env(AUTH_INTERNAL_TOKEN, '') and sends
+`Authorization: Bearer <token>` only when non-empty. Any non-200 (401/403
+included) returns null and isn't cached. New specs: header when set, none
+when unset, none when empty, 401/403 -> null and retried on the next call
+(it.each). Revert checks: with `headers,` removed from the fetch, 1 spec
+fails (the set case); with `token !== undefined` in place of the truthy
+check, 2 fail (unset and empty). dev jest 26/26.
+reaper.sh: AUTH_INTERNAL_TOKEN="${AUTH_INTERNAL_TOKEN:-}" sits beside
+AUTH_URL. With a token, fetch_host_activity runs
+`printf 'header = "Authorization: Bearer %s"\n' "$AUTH_INTERNAL_TOKEN" | curl --config - ...`
+(printf is a builtin); without one, the curl call is the old one unchanged.
+The startup log says `auth token set|unset`, never the value. The header
+comment describes the token and 401/403.
+Live check of the function copied from the file, against a throwaway node
+listener on 127.0.0.1 (2s delayed reply; random test token read from a
+file):
+- set: curl argv `curl -s --max-time 5 --get -w \n%{http_code} --config - --data-urlencode host=a.dev.lilnas.io --data-urlencode hours=2 http://127.0.0.1:<port>/internal/host-activity`;
+  the listener saw `Bearer <24 chars>` matching the token; 0 processes had
+  the token in ps args.
+- unset: the same argv without `--config -`; the listener saw no
+  Authorization header; 0 processes had the token.
+- 401 listener: fetch_host_activity returns 1.
+Listeners killed, /tmp/t7-* removed, no leftover node process
+(pgrep -x node checked). sh -n passes.
+Decision: no escaping of `"` or `\` in the token for the curl config line.
+Tokens are expected to be hex/base64url; a token containing those
+characters would break the config parse, curl would fail, and the unit
+would simply not be reaped.
+Not done here (not this task's files): apps/dev-idle-reaper/deploy.yml and
+apps/dev/deploy.yml don't pass AUTH_INTERNAL_TOKEN yet (literal
+`environment:` lists, no env_file), so production behaves as before until
+the wiring task adds it.
+All six checks pass: lint/type-check groups rc=0; jest auth 987/987, utils
+20/20, download 112/112, dev 26/26, icloud-backup 24/24; prettier clean;
+sh -n ok; secrets verify rc=0.

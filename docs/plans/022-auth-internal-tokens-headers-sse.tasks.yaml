@@ -523,7 +523,8 @@ phases:
           - apps/dev/src/activity/
           - apps/dev/src/env.ts
           - apps/dev-idle-reaper/reaper.sh
-        status: todo
+        status: done
+        commit: 39c7b7479e48ef5aaa6f600c6d5b51ece4c79a54
         body: |-
           Two callers reach `GET /internal/host-activity` on the auth backend without the shared
           client. Both must send `Authorization: Bearer <token>` with the token from
