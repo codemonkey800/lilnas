@@ -478,7 +478,8 @@ phases:
           - T4
         files:
           - packages/utils/src/auth/
-        status: todo
+        status: done
+        commit: 5defed8dd85b980f3a2caa215fe5458fe315434d
         body: |-
           `packages/utils/src/auth/client.ts` is the shared client `apps/download` and
           `apps/icloud-backup` use for `GET /admin/check`, `GET /internal/discord-link` and

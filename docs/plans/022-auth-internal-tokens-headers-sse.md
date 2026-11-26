@@ -312,3 +312,23 @@ Rollback for the human: revert ebedb27c..91445071 on main and push; or backend o
 cd /opt/lilnas && sudo -u deploy env LILNAS_TAG=ebedb27c570a2bb1ed722beb569b54ba6a774d67 docker compose up -d auth
 
 No commits: nothing to integrate.
+
+### 2026-11-26 · T6 · done
+AuthClient(baseUrl = 'http://localhost:8081', token = process.env.AUTH_INTERNAL_TOKEN).
+- Token is read when the constructor runs (default parameter), so localInstance/dockerInstance read the env per call, never at import.
+- A trimmed, non-empty token adds `Authorization: Bearer <trimmed>` after Content-Type. Otherwise no Authorization header, same as before.
+- Decision: `token ?? env`. An explicit constructor token, even '' or whitespace, wins over the env. '' means "no header", not "fall back to env".
+- Token is held in a JS private field (#authorization), so util.inspect and JSON.stringify of the client don't show it (spec covers this).
+- Error messages are unchanged: 401/403 throw "<METHOD> <route> failed with <status> <statusText>". Callers (AdminCheckService, DiscordLinkService) untouched.
+- The spec deletes AUTH_INTERNAL_TOKEN in a top-level beforeEach and restores it afterAll, so the existing exact-header assertions stay deterministic.
+Proof each security-relevant spec fails when the behaviour is reverted (temporary edits, restored with git checkout on the file):
+- header not sent: 8 failed
+- no trim/blank check: 3 failed
+- env token preferred over the constructor token: 1 failed
+- token added to the error message: 2 failed
+- env read once at import: 5 failed
+- token stored in a public field: 1 failed
+All six plan checks pass:
+- jest: auth 987/987, utils 34/34, download 112/112, dev 21/21, icloud-backup 24/24
+- prettier ok, sh -n ok, secrets verify exit 0
+Temp logs /tmp/t6-* removed. No containers created.
