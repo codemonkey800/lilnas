@@ -210,3 +210,11 @@ Research on 2026-11-26 at `main` ebedb27c.
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
      the rollout record. Humans may add notes here too. -->
+
+### 2026-11-26 · T1 · done
+- The `auth` router on auth-frontend now has `middlewares=auth-security-headers,auth-inflight`, plus the six middleware labels exactly as the task gave them. The comment above them covers: what each middleware is for; HSTS is for this host only; the in-flight limit is per IP and needs the ipstrategy line; headers come first so a 429 carries them. The backend `auth` service still has no traefik.* label.
+- next.config.js returns `poweredByHeader: false` in every phase (one shared object). The rewrites are unchanged.
+- deploy.yml volume comment now also has `chmod 700 … && chmod 600 …lilnas-auth.db*` and the reason. The existing `sudo chown` line is kept. Comment only.
+- The new spec auth-router-hardening.spec.ts (backend project) parses the YAML the same way frontend-isolation.spec.ts does. Shown to fail when each behaviour is reverted: order swap 1 failed; ipstrategy removed 1 failed; stspreload added 1 failed; `lilnas-auth` in a name 4 failed; poweredByHeader removed 3 failed.
+- All checks pass: lint and type-check; jest auth 955, utils 20, download 112, dev 21, icloud-backup 24; prettier; sh -n; secrets verify.
+- No containers were created. Temp files: two /tmp backups, removed at the end of the revert run.

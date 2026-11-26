@@ -4,13 +4,14 @@ phases:
     name: Headers and SSE limits
     tasks:
       - id: T1
-        title: 'Security headers and an in-flight limit on the `auth` router; `x-powered-by` off'
+        title: Security headers and an in-flight limit on the `auth` router; `x-powered-by` off
         after: []
         files:
           - apps/auth/deploy.yml
           - apps/auth/next.config.js
           - apps/auth/src/services/__tests__/auth-router-hardening.spec.ts
-        status: todo
+        status: done
+        commit: 374a6bcbd442314bc78cce98731647b72cb00b25
         body: |-
           The `auth` router (labels on the `auth-frontend` service in `apps/auth/deploy.yml`) has no
           middlewares, and `https://auth.lilnas.io/login` answers with no HSTS, no
@@ -934,7 +935,7 @@ phases:
           Approve if all of that works. If a caller lost access, roll back by reverting the
           enforcement commit on `main` and pushing, and request changes with what you saw.
       - id: T13
-        title: 'Cookie-drop middleware on turbo and emby; coverage spec and README'
+        title: Cookie-drop middleware on turbo and emby; coverage spec and README
         after:
           - T12
           - H1
