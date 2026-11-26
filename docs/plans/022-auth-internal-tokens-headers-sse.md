@@ -207,6 +207,54 @@ Research on 2026-11-26 at `main` ebedb27c.
   PKCE for Immich; `cap_drop` and `no-new-privileges` on both auth containers; stop mounting the
   dev checkout's `.env.keys` into `dev-dashboard`.
 
+- **Steering notes saved 2026-11-26 before a context clear:**
+  - Run `nexus-run:dc68de9c-10d3-43a9-9767-e9fa8748ba33`, started 2026-11-26, strong tier at
+    high effort, two tasks at a time. Planner session `9d2629e6-4044-4556-8cea-63a4f216aa1d`; the
+    review that led here is Nexus session `13f81898-8ae2-4aba-a8d6-a2878e0849e3`.
+  - State when saved: phase 1 done and reviewed with no defects; H1 approved (emby uses no
+    cookies, so T13 includes emby); H2 approved (directory 700, files 600, October copy moved to
+    `/storage/backups/lilnas-auth/`); H3 approved; T4 pushed 91445071 to `main` (rollback sha
+    ebedb27c, CI green, all production checks passed); T6 done. Open: H4, T5, T7, then T8 and T9.
+    No change request was open and no plan edit has been made since Start.
+  - User decisions, all final: one token per caller, scoped; `download` keeps the write scope
+    (asked, chosen over moving the write to tdr-bot); expose convention keeps `lilnas-auth` as
+    the shipped default and public routes swap to `lilnas-cookie-strip` (asked, chosen over
+    making cookie-strip the shipped default); strong tier for tasks and reviews (asked); HSTS on
+    `auth.lilnas.io` only; immich unchanged; four pushes, an agent pushes after each go/no-go,
+    humans roll back.
+  - Defaults the planner picked without asking, reported to the user and not disputed: cap of 6
+    streams per user, 64 in flight per source IP, HSTS one year without preload, client code
+    unchanged, middlewares defined on the container that uses them.
+  - Why the order is linear: a push task pushes its worktree `HEAD`. Any new task that edits code
+    must be `after` the preceding push task (T4, T10, T12) or it ships early. A fix for something
+    already pushed needs its own go/no-go and push, or must ride the next push on purpose.
+  - Push tasks stop if `origin/main` moved. If that happens, do not have an agent merge or
+    rebase; ask the user how to reconcile.
+  - Ruled out, with reasons: an auth or forwardAuth middleware on turbo, emby or immich (clients
+    cannot sign in; no dependency on auth uptime); defining the new middlewares in
+    `infra/proxy.yml` (recreates Traefik); `${INTERNAL_TOKEN_ENFORCE:-true}` as a host kill
+    switch (a stray host variable would silently reopen the routes; a bad token only degrades
+    callers, so revert on `main` is fast enough); a waiting period between push 2 and push 3
+    (the routes see almost no traffic, so T10 triggers each caller instead); a custom token
+    header (pino already redacts `Authorization`); a Docker-provider rig with
+    `traefik.enable=true` (the production Traefik would load its labels); changing
+    `pending-client.tsx` to redirect a signed-out tab (sign-in behaviour must not change); `cap_drop`,
+    `no-new-privileges` and Immich PKCE in this run.
+  - T8 writes production secrets. It must never print a value, create a `.decrypted` file, or
+    set `INTERNAL_TOKEN_ENFORCE`. If T8 has to be re-run, the tokens it wrote earlier are
+    replaced as pairs; a half-written pair breaks that caller once push 3 enforces.
+  - T10 and T12 probe `POST /internal/discord-identity` with body `{}` only (400). A valid body
+    writes to the production roster.
+  - Push 2 restarts the eleven apps that depend on `@lilnas/utils`. Push 4 recreates emby and
+    restarts auth. Both go/no-go bodies say to pick a quiet time.
+  - T9 and T3 leave nothing running. If the run is cancelled mid-task, check
+    `docker ps -a | grep -E 'hardening-rig|rig-'` and `docker network ls | grep rig` and remove
+    what is left by hand.
+  - `/opt/lilnas` needs `git -c safe.directory=/opt/lilnas` to read. `gh` is authenticated.
+  - Memory file `project_auth_hardening_plan_022.md` records the decisions; update it as the
+    pushes land.
+  - No open thread with the user.
+
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
      the rollout record. Humans may add notes here too. -->
