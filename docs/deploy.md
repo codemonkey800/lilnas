@@ -232,7 +232,7 @@ with `sudo -u deploy docker compose up -d browser`.
 
 ## Secrets
 
-The 19 env files compose loads in production are committed, encrypted with
+The 21 env files compose loads in production are committed, encrypted with
 [dotenvx](https://dotenvx.com) 2.38.0 (a root devDependency). Each value is
 `KEY=encrypted:…`, plus a `DOTENV_PUBLIC_KEY*` line that lets anyone add or
 change a value without the private key. Compose never reads these files
@@ -244,7 +244,7 @@ line stripped, so the container env is identical to the old plaintext files.
 Discovery rule (`listEncryptedEnvFiles` in `packages/cli/src/utils/secrets.ts`
 and `decrypt-env.sh --list`): tracked files matching `apps/*/.env.prod`,
 `infra/.env`, `infra/.env.*`, excluding `*.example` and `*.decrypted`. Today:
-`apps/{auth,download,equations,icloud-backup,me-token-tracker,tdr-bot,theater}/.env.prod`,
+`apps/{auth,dev,dev-idle-reaper,download,equations,icloud-backup,me-token-tracker,tdr-bot,theater}/.env.prod`,
 `infra/.env` (immich) and
 `infra/.env.{exportarr-radarr,exportarr-sabnzbd,exportarr-sonarr,l4d2,nexus-code,palworld,postgres-exporter,storage,traefik,turbo,valheim}`.
 

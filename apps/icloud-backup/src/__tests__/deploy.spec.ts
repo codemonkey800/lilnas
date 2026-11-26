@@ -237,8 +237,9 @@ describe('icloud-backup .env.prod', () => {
     })
   const secrets = entries.filter(([key]) => key !== 'DOTENV_PUBLIC_KEY_PROD')
 
-  it('has the four production keys', () => {
+  it('has the five production keys', () => {
     expect(secrets.map(([key]) => key).sort()).toEqual([
+      'AUTH_INTERNAL_TOKEN',
       'IMMICH_API_KEY',
       'POSTGRES_DB',
       'POSTGRES_PASSWORD',
