@@ -21,19 +21,45 @@ function discordLinkQuery(params: DiscordLinkLookupParams): string {
   return `email=${encodeURIComponent(params.email)}`
 }
 
-// Mirrors packages/utils/src/download/client.ts's local/docker shape,
-// including its lack of a remoteInstance — that started here as a deliberate
-// deviation, and DownloadClient has since dropped its own broken one for the
-// same reason. auth.lilnas.io (deploy.yml) routes to port 8080 (the Next.js
-// frontend) — a completely different process from the Nest backend on 8081
-// that GET /admin/check lives on.
-// Port 8081 has no Traefik router at all (confirmed: it's reached only
-// container-to-container, the same mechanism Traefik's own
-// forwardauth.address=http://auth:8081/verify uses). A remoteInstance
-// pointed at https://auth.lilnas.io/admin/check would hit the wrong
-// process and likely 404 — omitted rather than shipped broken.
+/** The `Authorization` value for a token, or `undefined` when it is blank. */
+function bearerFor(token: string | undefined): string | undefined {
+  const trimmed = token?.trim()
+  return trimmed ? `Bearer ${trimmed}` : undefined
+}
+
+/** Reads `AUTH_INTERNAL_TOKEN` when called (per instance), never at import. */
+function envToken(): string | undefined {
+  return typeof process === 'undefined'
+    ? undefined
+    : process.env.AUTH_INTERNAL_TOKEN
+}
+
+// Client for auth's container-internal routes (GET /admin/check,
+// GET /internal/discord-link, POST /internal/discord-identity) on the Nest
+// backend, port 8081. Port 8081 has no Traefik router: it is reached only
+// container-to-container, the same way Traefik's own
+// forwardauth.address=http://auth:8081/verify does. auth.lilnas.io routes to
+// the Next.js frontend on 8080 instead, so there is deliberately no
+// remoteInstance (mirroring packages/utils/src/download/client.ts).
+//
+// These routes are not open to the whole network: auth authorizes each caller
+// by a per-caller bearer token with scopes. The client sends
+// `Authorization: Bearer <token>` from the constructor argument, or
+// AUTH_INTERNAL_TOKEN when none is given. With no non-blank token it sends no
+// Authorization header, which only works while auth is not enforcing tokens
+// (e.g. a dev stack). A 401/403 surfaces as the usual "failed with <status>"
+// error; the token never appears in an error, a log or a URL.
 export class AuthClient {
-  constructor(private baseUrl = 'http://localhost:8081') {}
+  // A private field so the token stays out of util.inspect / console.log
+  // output of the client.
+  readonly #authorization: string | undefined
+
+  constructor(
+    private baseUrl = 'http://localhost:8081',
+    token: string | undefined = envToken(),
+  ) {
+    this.#authorization = bearerFor(token)
+  }
 
   static get localInstance() {
     return new AuthClient()
@@ -50,6 +76,7 @@ export class AuthClient {
 
       headers: {
         'Content-Type': 'application/json',
+        ...(this.#authorization ? { Authorization: this.#authorization } : {}),
         ...options.headers,
       },
     })

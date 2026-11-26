@@ -10,7 +10,69 @@ function mockFetchJson(body: unknown, ok = true): jest.SpyInstance {
   } as unknown as Response)
 }
 
+function mockFetchStatus(status: number, statusText: string): jest.SpyInstance {
+  return jest.spyOn(global, 'fetch').mockResolvedValue({
+    ok: false,
+    status,
+    statusText,
+    json: () => Promise.resolve({ statusCode: status, message: statusText }),
+  } as unknown as Response)
+}
+
+/** Headers of the nth fetch call, as a plain record. */
+function sentHeaders(
+  fetchSpy: jest.SpyInstance,
+  call = 0,
+): Record<string, string> {
+  const init = fetchSpy.mock.calls[call][1] as RequestInit
+  return init.headers as Record<string, string>
+}
+
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
+const TOKEN = 'test-token-ctor-0123456789'
+const ENV_TOKEN = 'test-token-env-9876543210'
+
+function okResponse(body: unknown): Response {
+  return {
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    json: () => Promise.resolve(body),
+  } as unknown as Response
+}
+
+/** Calls each of the three methods once against `client`. */
+async function callAllMethods(client: AuthClient): Promise<jest.SpyInstance> {
+  const fetchSpy = jest
+    .spyOn(global, 'fetch')
+    .mockResolvedValueOnce(okResponse({ isAdmin: true }))
+    .mockResolvedValueOnce(okResponse({ identity: null, user: null }))
+    .mockResolvedValueOnce(okResponse({ ok: true }))
+
+  await client.checkIsAdmin('alice@example.com')
+  await client.getDiscordLink({ userId: 'user_1' })
+  await client.registerDiscordIdentity({
+    discordUserId: '123456789012345678',
+    username: 'alice',
+  })
+
+  expect(fetchSpy).toHaveBeenCalledTimes(3)
+  return fetchSpy
+}
+
+const ORIGINAL_ENV_TOKEN = process.env.AUTH_INTERNAL_TOKEN
+
+beforeEach(() => {
+  delete process.env.AUTH_INTERNAL_TOKEN
+})
+
+afterAll(() => {
+  if (ORIGINAL_ENV_TOKEN === undefined) {
+    delete process.env.AUTH_INTERNAL_TOKEN
+  } else {
+    process.env.AUTH_INTERNAL_TOKEN = ORIGINAL_ENV_TOKEN
+  }
+})
 
 describe('AuthClient', () => {
   describe('instance factories', () => {
@@ -213,6 +275,163 @@ describe('AuthClient', () => {
           username: 'alice',
         }),
       ).rejects.toThrow('POST /internal/discord-identity failed with 500')
+    })
+  })
+
+  describe('bearer token', () => {
+    function expectBearerOnAll(fetchSpy: jest.SpyInstance, token: string) {
+      for (let call = 0; call < 3; call++) {
+        expect(sentHeaders(fetchSpy, call)).toEqual({
+          ...JSON_HEADERS,
+          Authorization: `Bearer ${token}`,
+        })
+      }
+    }
+
+    function expectNoAuthorizationOnAll(fetchSpy: jest.SpyInstance) {
+      for (let call = 0; call < 3; call++) {
+        expect(sentHeaders(fetchSpy, call)).toEqual(JSON_HEADERS)
+        const url = fetchSpy.mock.calls[call][0] as string
+        expect(url).not.toContain('token')
+      }
+    }
+
+    it('sends a constructor token on all three methods', async () => {
+      const fetchSpy = await callAllMethods(
+        new AuthClient('http://auth:8081', TOKEN),
+      )
+
+      expectBearerOnAll(fetchSpy, TOKEN)
+    })
+
+    it.each([
+      ['localInstance', () => AuthClient.localInstance],
+      ['dockerInstance', () => AuthClient.dockerInstance],
+      ['new AuthClient()', () => new AuthClient()],
+    ])(
+      'sends AUTH_INTERNAL_TOKEN on all three methods via %s',
+      async (_label, make) => {
+        process.env.AUTH_INTERNAL_TOKEN = ENV_TOKEN
+
+        const fetchSpy = await callAllMethods(make())
+
+        expectBearerOnAll(fetchSpy, ENV_TOKEN)
+      },
+    )
+
+    it('reads AUTH_INTERNAL_TOKEN when the factory is called, not at import', async () => {
+      const before = AuthClient.dockerInstance
+      process.env.AUTH_INTERNAL_TOKEN = ENV_TOKEN
+      const after = AuthClient.dockerInstance
+
+      expectNoAuthorizationOnAll(await callAllMethods(before))
+      jest.restoreAllMocks()
+      expectBearerOnAll(await callAllMethods(after), ENV_TOKEN)
+    })
+
+    it('trims surrounding whitespace from the token', async () => {
+      process.env.AUTH_INTERNAL_TOKEN = `  ${ENV_TOKEN}\n`
+
+      const fetchSpy = await callAllMethods(AuthClient.dockerInstance)
+
+      expectBearerOnAll(fetchSpy, ENV_TOKEN)
+    })
+
+    it('sends no Authorization header with neither a constructor token nor the env', async () => {
+      const fetchSpy = await callAllMethods(AuthClient.dockerInstance)
+
+      expectNoAuthorizationOnAll(fetchSpy)
+    })
+
+    it.each([
+      ['an empty string', ''],
+      ['whitespace', ' \t\n '],
+    ])('sends no Authorization header for %s', async (_label, blank) => {
+      process.env.AUTH_INTERNAL_TOKEN = blank
+      expectNoAuthorizationOnAll(
+        await callAllMethods(AuthClient.dockerInstance),
+      )
+      jest.restoreAllMocks()
+
+      delete process.env.AUTH_INTERNAL_TOKEN
+      expectNoAuthorizationOnAll(
+        await callAllMethods(new AuthClient('http://auth:8081', blank)),
+      )
+    })
+
+    it('prefers a constructor token over AUTH_INTERNAL_TOKEN', async () => {
+      process.env.AUTH_INTERNAL_TOKEN = ENV_TOKEN
+
+      const fetchSpy = await callAllMethods(
+        new AuthClient('http://auth:8081', TOKEN),
+      )
+
+      expectBearerOnAll(fetchSpy, TOKEN)
+    })
+
+    it('keeps the 2 s timeout signal and Content-Type alongside the token', async () => {
+      const fetchSpy = mockFetchJson({ isAdmin: false })
+
+      await new AuthClient('http://auth:8081', TOKEN).checkIsAdmin(
+        'alice@example.com',
+      )
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'http://auth:8081/admin/check?email=alice%40example.com',
+        {
+          headers: { ...JSON_HEADERS, Authorization: `Bearer ${TOKEN}` },
+          signal: expect.any(AbortSignal),
+        },
+      )
+    })
+
+    it.each([
+      [401, 'Unauthorized'],
+      [403, 'Forbidden'],
+    ])(
+      'rejects a %i with the status and without the token',
+      async (status, statusText) => {
+        const client = new AuthClient('http://auth:8081', TOKEN)
+        const calls: [string, () => Promise<unknown>][] = [
+          ['GET /admin/check', () => client.checkIsAdmin('alice@example.com')],
+          [
+            'GET /internal/discord-link',
+            () => client.getDiscordLink({ userId: 'user_1' }),
+          ],
+          [
+            'POST /internal/discord-identity',
+            () =>
+              client.registerDiscordIdentity({
+                discordUserId: '123456789012345678',
+                username: 'alice',
+              }),
+          ],
+        ]
+
+        for (const [route, call] of calls) {
+          const fetchSpy = mockFetchStatus(status, statusText)
+          const error = await call().then(
+            () => {
+              throw new Error(`${route} resolved on a ${status}`)
+            },
+            (e: unknown) => e as Error,
+          )
+
+          expect(error.message).toContain(`${route} failed with ${status}`)
+          expect(error.message).not.toContain(TOKEN)
+          expect(String(error.stack)).not.toContain(TOKEN)
+          expect(fetchSpy.mock.calls[0][0]).not.toContain(TOKEN)
+          fetchSpy.mockRestore()
+        }
+      },
+    )
+
+    it('keeps the token out of an inspected or serialized client', async () => {
+      const { inspect } = await import('node:util')
+      const client = new AuthClient('http://auth:8081', TOKEN)
+
+      expect(inspect(client, { depth: 5 })).not.toContain(TOKEN)
+      expect(JSON.stringify(client)).not.toContain(TOKEN)
     })
   })
 })
