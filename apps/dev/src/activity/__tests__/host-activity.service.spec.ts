@@ -16,26 +16,34 @@ describe('HostActivityService', () => {
   let server: http.Server
   let handler: Handler
   let requests: string[]
+  let authHeaders: (string | undefined)[]
   let originalAuthUrl: string | undefined
+  let originalToken: string | undefined
 
   beforeEach(async () => {
     requests = []
+    authHeaders = []
     handler = (_req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(activity))
     }
     server = http.createServer((req, res) => {
       requests.push(req.url ?? '')
+      authHeaders.push(req.headers.authorization)
       handler(req, res)
     })
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     originalAuthUrl = process.env.AUTH_URL
+    originalToken = process.env.AUTH_INTERNAL_TOKEN
+    delete process.env.AUTH_INTERNAL_TOKEN
     process.env.AUTH_URL = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
   })
 
   afterEach(async () => {
     if (originalAuthUrl === undefined) delete process.env.AUTH_URL
     else process.env.AUTH_URL = originalAuthUrl
+    if (originalToken === undefined) delete process.env.AUTH_INTERNAL_TOKEN
+    else process.env.AUTH_INTERNAL_TOKEN = originalToken
     server.closeAllConnections()
     await new Promise(resolve => server.close(resolve))
   })
@@ -153,4 +161,43 @@ describe('HostActivityService', () => {
     expect(await service.get('h', 2)).toEqual(activity)
     expect(requests).toHaveLength(2)
   })
+
+  it('sends the bearer token when AUTH_INTERNAL_TOKEN is set', async () => {
+    process.env.AUTH_INTERNAL_TOKEN = 'test-token'
+
+    expect(await new HostActivityService().get('h', 2)).toEqual(activity)
+    expect(authHeaders).toEqual(['Bearer test-token'])
+  })
+
+  it('sends no Authorization header when AUTH_INTERNAL_TOKEN is unset', async () => {
+    expect(await new HostActivityService().get('h', 2)).toEqual(activity)
+    expect(authHeaders).toEqual([undefined])
+  })
+
+  it('sends no Authorization header when AUTH_INTERNAL_TOKEN is empty', async () => {
+    process.env.AUTH_INTERNAL_TOKEN = ''
+
+    expect(await new HostActivityService().get('h', 2)).toEqual(activity)
+    expect(authHeaders).toEqual([undefined])
+  })
+
+  it.each([401, 403])(
+    'returns null on a %i and retries on the next call',
+    async status => {
+      process.env.AUTH_INTERNAL_TOKEN = 'test-token'
+      const service = new HostActivityService()
+      handler = (_req, res) => {
+        res.writeHead(status)
+        res.end()
+      }
+      expect(await service.get('h', 2)).toBeNull()
+
+      handler = (_req, res) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(activity))
+      }
+      expect(await service.get('h', 2)).toEqual(activity)
+      expect(requests).toHaveLength(2)
+    },
+  )
 })

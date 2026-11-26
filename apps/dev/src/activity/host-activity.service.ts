@@ -32,7 +32,9 @@ interface CacheEntry {
 }
 
 // Asks the auth service the same question dev-idle-reaper asks, so the
-// dashboard shows what the reaper will see. Failures are never cached.
+// dashboard shows what the reaper will see. Sends AUTH_INTERNAL_TOKEN as a
+// bearer when set. Failures (any non-200, 401 and 403 included) are never
+// cached.
 @Injectable()
 export class HostActivityService {
   private readonly cache = new Map<string, CacheEntry>()
@@ -62,8 +64,15 @@ export class HostActivityService {
     url.searchParams.set('host', host)
     url.searchParams.set('hours', String(hours))
 
+    // Sent only when set, so the call behaves as before when it isn't.
+    const token = env(EnvKeys.AUTH_INTERNAL_TOKEN, '')
+    const headers: Record<string, string> = token
+      ? { Authorization: `Bearer ${token}` }
+      : {}
+
     try {
       const res = await fetch(url, {
+        headers,
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       })
       if (res.status !== 200) return null

@@ -34,7 +34,12 @@ set -u
 # the reaper takes the Host(`...`) names from the container's Traefik router
 # rules and calls $AUTH_URL/internal/host-activity?host=<host>&hours=<window>
 # for each, which returns the distinct users in the window and the last
-# visit. A container's last-active time only ever moves forward to the latest
+# visit. When AUTH_INTERNAL_TOKEN is set the call carries
+# `Authorization: Bearer <token>`, handed to curl as a config on stdin so the
+# token never appears in the process arguments (`ps` on the host); when it is
+# unset or empty no header is sent. Auth answers 401/403 to a missing or wrong
+# token once it enforces tokens, and like any other non-200 that leaves the
+# unit alone that poll. A container's last-active time only ever moves forward to the latest
 # lastVisitAt seen, and starts at the moment the reaper first sees the
 # container -- so a fresh container (or a freshly migrated auth with no
 # history) always gets a full max-idle-hours before it can be reaped.
@@ -50,6 +55,7 @@ set -u
 POLL_INTERVAL_SECONDS="${POLL_INTERVAL_SECONDS:-300}"
 DEFAULT_MAX_IDLE_HOURS="${DEFAULT_MAX_IDLE_HOURS:-2}"
 AUTH_URL="${AUTH_URL:-http://auth:8081}"
+AUTH_INTERNAL_TOKEN="${AUTH_INTERNAL_TOKEN:-}"
 DEV_PROJECTS_ROOT="${DEV_PROJECTS_ROOT:-/home/jeremy/dev}"
 STATE_DIR="/var/lib/reaper"
 STATE_FILE="$STATE_DIR/state.json"
@@ -126,11 +132,20 @@ prune_state() {
 
 fetch_host_activity() {
     # $1=host $2=window hours -- prints auth's JSON on a 200, fails otherwise
-    # (unreachable, timeout, 404 from an auth deploy without the route, 5xx,
-    # or a body that isn't the expected shape).
-    body=$(curl -s --max-time 5 --get -w '\n%{http_code}' \
-        --data-urlencode "host=$1" --data-urlencode "hours=$2" \
-        "$AUTH_URL/internal/host-activity") || return 1
+    # (unreachable, timeout, 401/403 for a missing or wrong token, 404 from
+    # an auth deploy without the route, 5xx, or a body that isn't the
+    # expected shape). The bearer header goes in a curl config read from
+    # stdin, never on the command line; printf is a shell builtin.
+    if [ -n "$AUTH_INTERNAL_TOKEN" ]; then
+        body=$(printf 'header = "Authorization: Bearer %s"\n' "$AUTH_INTERNAL_TOKEN" \
+            | curl -s --max-time 5 --get -w '\n%{http_code}' --config - \
+                --data-urlencode "host=$1" --data-urlencode "hours=$2" \
+                "$AUTH_URL/internal/host-activity") || return 1
+    else
+        body=$(curl -s --max-time 5 --get -w '\n%{http_code}' \
+            --data-urlencode "host=$1" --data-urlencode "hours=$2" \
+            "$AUTH_URL/internal/host-activity") || return 1
+    fi
     code=$(printf '%s\n' "$body" | tail -n 1)
     [ "$code" = "200" ] || return 1
     json=$(printf '%s\n' "$body" | sed '$d')
@@ -259,7 +274,8 @@ poll_once() {
     done
 }
 
-log "dev-idle-reaper starting (poll every ${POLL_INTERVAL_SECONDS}s, default max idle ${DEFAULT_MAX_IDLE_HOURS}h, auth ${AUTH_URL}, project root ${PROJECTS_ROOT_PREFIX})"
+if [ -n "$AUTH_INTERNAL_TOKEN" ]; then auth_token_state=set; else auth_token_state=unset; fi
+log "dev-idle-reaper starting (poll every ${POLL_INTERVAL_SECONDS}s, default max idle ${DEFAULT_MAX_IDLE_HOURS}h, auth ${AUTH_URL}, auth token ${auth_token_state}, project root ${PROJECTS_ROOT_PREFIX})"
 
 while true; do
     poll_once
