@@ -390,7 +390,8 @@ phases:
           - apps/auth/src/app.module.ts
           - apps/auth/src/env.ts
           - apps/auth/README.md
-        status: todo
+        status: done
+        commit: 1fb5054077af9f7ef8ab94b70b9f75994686d57a
         body: |-
           `GET /admin/check` (`src/admin/admin-check.controller.ts`), `GET /internal/discord-link`
           and `POST /internal/discord-identity` (`src/internal/discord-internal.controller.ts`) and

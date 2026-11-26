@@ -255,6 +255,12 @@ Research on 2026-11-26 at `main` ebedb27c.
     pushes land.
   - No open thread with the user.
 
+- **2026-11-26, after the context clear:** C1 (from T5: token values and the enforce flag are not
+  in its diff) resolved `no_change`: T8 writes the tokens and env wiring, T11 sets the flag. No
+  plan edit. Seen while checking: `icloud-backup-db` also loads `apps/icloud-backup/.env.prod.decrypted`,
+  so push 2 recreates that database container too and it receives `AUTH_INTERNAL_TOKEN` in its
+  environment (it already holds every other icloud-backup secret). Not changed in this run.
+
 ## Log
 <!-- Written by Nexus: findings, review cycles, checkpoint verdicts, the final report,
      the rollout record. Humans may add notes here too. -->
@@ -380,3 +386,13 @@ All six plan checks pass:
 - jest: auth 987/987, utils 34/34, download 112/112, dev 21/21, icloud-backup 24/24
 - prettier ok, sh -n ok, secrets verify exit 0
 Temp logs /tmp/t6-* removed. No containers created.
+
+### 2026-11-26 · T5 · done
+- Guard reads the env per request: tokens, minimum length, shared-value check, and INTERNAL_TOKEN_ENFORCE === 'true'. onModuleInit logs one error per group of callers that share a token (names only, never the value) and never throws.
+- Header must match /^bearer ([^\s]+)$/i. No header is `missing`. Anything else is `invalid`, including an empty header value, two spaces, or a trailing word.
+- Matching: SHA-256 of the presented token against every configured caller with crypto.timingSafeEqual, no short-circuit. A handler without scope metadata is `forbidden`. The log line has the contract fields; caller is null unless matched; remoteAddress comes from req.socket.remoteAddress. Authorization was already redacted by logger.config.ts.
+- Deliberate difference: a successful POST /internal/discord-identity returns 201 (Nest's POST default, unchanged), not 200. The specs assert 201.
+- Verify: /verify with no session still returns 302 while enforcing. /health and /strip-cookie return 200 with no internal-auth log line.
+- Mutation evidence (each applied to the guard alone and reverted; failures in the two new spec files): enforce on any set value 8, no length check 2, no duplicate disabling 3, no scope check 21, unscoped handler allowed 4, case-sensitive scheme 3, loose shape 3, 401 instead of 403 4… actually 11, observe mode rejecting 23, header in log line 1, startup throw on duplicates 1. Swapping timingSafeEqual for === cannot be seen in behaviour, so it is checked by review only.
+- README: new "Internal routes" section (caller/scope tables, header, observe/enforce, adding a caller), 5 env rows, Residual risk paragraph updated. Prettier re-padded the existing env table columns.
+- Temp files /tmp/t5-c1.log and /tmp/t5-c2.log removed. No containers were created.
