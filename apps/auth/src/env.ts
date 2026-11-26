@@ -40,6 +40,10 @@ export const EnvKeys = {
   // SSE keepalive interval for the pending page's live channel, same
   // convention as apps/tdr-code/src/sse/sse.controller.ts's identical var.
   SSE_KEEPALIVE_MS: 'SSE_KEEPALIVE_MS',
+  // Most SSE streams one signed-in user may hold open at once, counted
+  // across /sse/pending and /sse/admin together (sse-stream-limiter.service.ts).
+  // Unset, or anything that is not an integer of at least 1, means 6.
+  SSE_MAX_STREAMS_PER_USER: 'SSE_MAX_STREAMS_PER_USER',
   // Comma-separated admin allowlist, with TWO independent consumers that
   // deliberately read it differently. AdminGuard checks a signed-in
   // session's email against this list ALONE — it never reads the grants

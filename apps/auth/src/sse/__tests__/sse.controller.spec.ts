@@ -1,9 +1,18 @@
-import type { MessageEvent } from '@nestjs/common'
+import { EventEmitter } from 'node:events'
+
+import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+  type MessageEvent,
+  UnauthorizedException,
+} from '@nestjs/common'
 import type { Request } from 'express'
 import { firstValueFrom, Observable, take, toArray } from 'rxjs'
 
 import { NotifyBusService } from 'src/sse/notify-bus.service'
 import { SseController } from 'src/sse/sse.controller'
+import { SseStreamLimiter } from 'src/sse/sse-stream-limiter.service'
 import type { AccessCacheService } from 'src/verify/access-cache.service'
 
 process.env.SSE_KEEPALIVE_MS = '50'
@@ -19,58 +28,124 @@ function fakeAccessCache(
 }
 
 function fakeRequest(cookie?: string): Request {
-  return { headers: { cookie } } as unknown as Request
+  const req = new EventEmitter() as EventEmitter & {
+    headers: Record<string, string | undefined>
+    socket: { destroyed: boolean }
+  }
+  req.headers = { cookie }
+  req.socket = { destroyed: false }
+  return req as unknown as Request
 }
 
-// This suite tests the controller's FILTERING/topic-scoping logic directly
-// (real SseController, real NotifyBusService, a stand-in AccessCacheService
-// since session resolution itself is U5's own, already-tested concern) by
-// subscribing to the returned Observable in-process, rather than driving a
-// live HTTP SSE connection end to end. A true HTTP-level test would mostly
-// re-prove that @nestjs/common's @Sse() decorator correctly pipes an
-// Observable to a chunked response, which is framework behavior, not this
-// controller's own logic — the filtering behavior below IS this controller's
-// own logic and is what these tests actually exercise.
+function makeController(
+  notifyBus: NotifyBusService,
+  accessCache: AccessCacheService,
+  limiter = new SseStreamLimiter(),
+): SseController {
+  return new SseController(notifyBus, accessCache, limiter)
+}
+
+// This suite tests the controller's own logic directly (real SseController,
+// real NotifyBusService, real SseStreamLimiter, a stand-in
+// AccessCacheService since session resolution itself is U5's own,
+// already-tested concern) by calling the handlers and subscribing to the
+// returned Observable in-process: the rejections, slot accounting and
+// topic filtering. What the client actually sees over HTTP (status codes,
+// content-type, the stream ending, a client hang-up freeing a slot) is
+// covered by sse.http.spec.ts against a real Nest app.
 describe('SseController', () => {
-  it('emits only keepalives when there is no session (no data leaks to an unauthenticated connection)', async () => {
+  it('rejects a request with no session before any stream starts, taking no slot', async () => {
     const notifyBus = new NotifyBusService()
-    const controller = new SseController(notifyBus, fakeAccessCache(null))
+    const limiter = new SseStreamLimiter()
+    const controller = makeController(notifyBus, fakeAccessCache(null), limiter)
 
-    const stream = await controller.pending(
-      fakeRequest(undefined),
-      'swole.lilnas.io',
-    )
-    notifyBus.publishStatusChange('some-user', 'swole.lilnas.io')
-
-    const events = await firstValueFrom(
-      (stream as Observable<MessageEvent>).pipe(take(1), toArray()),
-    )
-
-    expect(events).toHaveLength(1)
-    expect(events[0]?.type).toBe('keepalive')
+    await expect(
+      controller.pending(fakeRequest(undefined), 'swole.lilnas.io'),
+    ).rejects.toBeInstanceOf(UnauthorizedException)
+    expect(limiter.trackedUsers()).toBe(0)
   })
 
-  it('emits only keepalives when no host query param is given', async () => {
+  it.each([undefined, '', '   '])(
+    'rejects a signed-in request with host %p as 400, taking no slot',
+    async host => {
+      const notifyBus = new NotifyBusService()
+      const limiter = new SseStreamLimiter()
+      const controller = makeController(
+        notifyBus,
+        fakeAccessCache({ userId: 'user_1', email: 'a@example.com' }),
+        limiter,
+      )
+
+      await expect(
+        controller.pending(fakeRequest('cookie=x'), host),
+      ).rejects.toBeInstanceOf(BadRequestException)
+      expect(limiter.openStreams('user_1')).toBe(0)
+    },
+  )
+
+  it('answers 429 at the cap', async () => {
     const notifyBus = new NotifyBusService()
-    const controller = new SseController(
+    const limiter = new SseStreamLimiter()
+    const controller = makeController(
       notifyBus,
       fakeAccessCache({ userId: 'user_1', email: 'a@example.com' }),
+      limiter,
     )
+    for (let i = 0; i < limiter.cap; i++) {
+      await controller.pending(fakeRequest('cookie=x'), 'swole.lilnas.io')
+    }
 
-    const stream = await controller.pending(fakeRequest('cookie=x'), undefined)
-    notifyBus.publishStatusChange('user_1', 'swole.lilnas.io')
-
-    const events = await firstValueFrom(
-      (stream as Observable<MessageEvent>).pipe(take(1), toArray()),
+    const caught = await controller
+      .pending(fakeRequest('cookie=x'), 'swole.lilnas.io')
+      .catch((err: unknown) => err)
+    expect(caught).toBeInstanceOf(HttpException)
+    expect((caught as HttpException).getStatus()).toBe(
+      HttpStatus.TOO_MANY_REQUESTS,
     )
+    expect(limiter.openStreams('user_1')).toBe(limiter.cap)
+  })
 
-    expect(events).toHaveLength(1)
-    expect(events[0]?.type).toBe('keepalive')
+  it('releases the slot once when both the teardown and the request close fire', async () => {
+    const notifyBus = new NotifyBusService()
+    const limiter = new SseStreamLimiter()
+    const controller = makeController(
+      notifyBus,
+      fakeAccessCache({ userId: 'user_1', email: 'a@example.com' }),
+      limiter,
+    )
+    const keep = fakeRequest('cookie=x')
+    await controller.pending(keep, 'swole.lilnas.io')
+    const req = fakeRequest('cookie=x')
+    const stream = await controller.pending(req, 'swole.lilnas.io')
+    expect(limiter.openStreams('user_1')).toBe(2)
+
+    stream.subscribe().unsubscribe()
+    req.emit('close')
+    req.emit('close')
+
+    expect(limiter.openStreams('user_1')).toBe(1)
+  })
+
+  it('releases the slot on request close even if the stream is never subscribed', async () => {
+    const notifyBus = new NotifyBusService()
+    const limiter = new SseStreamLimiter()
+    const controller = makeController(
+      notifyBus,
+      fakeAccessCache({ userId: 'user_1', email: 'a@example.com' }),
+      limiter,
+    )
+    const req = fakeRequest('cookie=x')
+    await controller.pending(req, 'swole.lilnas.io')
+    expect(limiter.openStreams('user_1')).toBe(1)
+
+    req.emit('close')
+    expect(limiter.openStreams('user_1')).toBe(0)
+    expect(limiter.trackedUsers()).toBe(0)
   })
 
   it('covers R9/AE3: a signed-in subscriber receives a status-changed event for its own (userId, serviceHost) topic', async () => {
     const notifyBus = new NotifyBusService()
-    const controller = new SseController(
+    const controller = makeController(
       notifyBus,
       fakeAccessCache({ userId: 'user_1', email: 'a@example.com' }),
     )
@@ -89,7 +164,7 @@ describe('SseController', () => {
 
   it('does not deliver a signal published for a DIFFERENT user on the same host', async () => {
     const notifyBus = new NotifyBusService()
-    const controller = new SseController(
+    const controller = makeController(
       notifyBus,
       fakeAccessCache({ userId: 'user_1', email: 'a@example.com' }),
     )
@@ -118,7 +193,7 @@ describe('SseController', () => {
 
   it('does not deliver a signal published for a DIFFERENT service host for the same user', async () => {
     const notifyBus = new NotifyBusService()
-    const controller = new SseController(
+    const controller = makeController(
       notifyBus,
       fakeAccessCache({ userId: 'user_1', email: 'a@example.com' }),
     )
@@ -139,7 +214,7 @@ describe('SseController', () => {
 
   it('assigns monotonic ids across keepalive and data events on one connection, never NaN', async () => {
     const notifyBus = new NotifyBusService()
-    const controller = new SseController(
+    const controller = makeController(
       notifyBus,
       fakeAccessCache({ userId: 'user_1', email: 'a@example.com' }),
     )
@@ -163,24 +238,28 @@ describe('SseController', () => {
 
 // ──────────────────────────────────────────────────────────────────────────────
 // admin() — the admin dashboard's own live channel, GET /sse/admin. Unlike
-// pending() above, the method itself takes no request/query params and
-// never calls AccessCacheService at all — there is no per-connection topic
-// to derive, since every admin subscribes to the SAME flat ADMIN_TOPIC.
+// pending() above there is no per-connection topic to derive, since every
+// admin subscribes to the SAME flat ADMIN_TOPIC; the method resolves the
+// session only for the userId the stream cap counts against.
 // Authorization is the class-level @UseGuards(AdminGuard) decorator, which
 // — like every guard in this app, see admin.controller.spec.ts's own header
 // comment — has no effect on a directly-constructed controller instance
 // and is proven separately by admin.guard.spec.ts; this suite only covers
 // admin()'s OWN filtering logic, exactly mirroring the pending() suite
 // above (same cross-topic-isolation and monotonic-id techniques).
-// admin() is synchronous (unlike pending()'s async signature — it has no
-// session to resolve), so it is called directly, never awaited.
+// The cap and the 401/403 answers over real HTTP are covered by
+// sse.http.spec.ts.
 // ──────────────────────────────────────────────────────────────────────────────
+function fakeAdminAccessCache(): AccessCacheService {
+  return fakeAccessCache({ userId: 'admin_1', email: 'admin@example.com' })
+}
+
 describe('SseController.admin', () => {
   it('emits only keepalives with no publish at all', async () => {
     const notifyBus = new NotifyBusService()
-    const controller = new SseController(notifyBus, fakeAccessCache(null))
+    const controller = makeController(notifyBus, fakeAdminAccessCache())
 
-    const stream = controller.admin()
+    const stream = await controller.admin(fakeRequest('cookie=x'))
     const events = await firstValueFrom(stream.pipe(take(1), toArray()))
 
     expect(events).toHaveLength(1)
@@ -189,9 +268,9 @@ describe('SseController.admin', () => {
 
   it('emits an admin-changed event when publishAdminChange() fires', async () => {
     const notifyBus = new NotifyBusService()
-    const controller = new SseController(notifyBus, fakeAccessCache(null))
+    const controller = makeController(notifyBus, fakeAdminAccessCache())
 
-    const stream = controller.admin()
+    const stream = await controller.admin(fakeRequest('cookie=x'))
     const received = firstValueFrom(stream.pipe(take(1)))
     notifyBus.publishAdminChange()
 
@@ -201,9 +280,9 @@ describe('SseController.admin', () => {
 
   it('does not deliver a per-user status-changed signal (a DIFFERENT topic) to the admin channel', async () => {
     const notifyBus = new NotifyBusService()
-    const controller = new SseController(notifyBus, fakeAccessCache(null))
+    const controller = makeController(notifyBus, fakeAdminAccessCache())
 
-    const stream = controller.admin()
+    const stream = await controller.admin(fakeRequest('cookie=x'))
     // Same "assert the FIRST emission is a keepalive" technique as the
     // pending() suite's own cross-topic tests above — see those tests' own
     // comment for why this is the only version of the assertion that
@@ -219,9 +298,9 @@ describe('SseController.admin', () => {
 
   it('assigns monotonic ids across keepalive and data events on one connection, never NaN', async () => {
     const notifyBus = new NotifyBusService()
-    const controller = new SseController(notifyBus, fakeAccessCache(null))
+    const controller = makeController(notifyBus, fakeAdminAccessCache())
 
-    const stream = controller.admin()
+    const stream = await controller.admin(fakeRequest('cookie=x'))
     const eventsPromise = firstValueFrom(stream.pipe(take(2), toArray()))
     notifyBus.publishAdminChange()
     // The keepalive timer (50ms, set at module scope above) supplies the

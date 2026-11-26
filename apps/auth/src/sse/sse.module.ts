@@ -5,6 +5,7 @@ import { AccessCacheModule } from 'src/verify/access-cache.module'
 
 import { NotifyBusService } from './notify-bus.service'
 import { SseController } from './sse.controller'
+import { SseStreamLimiter } from './sse-stream-limiter.service'
 
 // NotifyBusService is exported so U7's admin controller can inject it (via
 // RequestsService) and call publishStatusChange() after its own
@@ -29,10 +30,13 @@ import { SseController } from './sse.controller'
 // singleton): AdminGuard is stateless and constructor-injects only
 // AccessCacheService, which AccessCacheModule above already guarantees is
 // the SAME shared singleton either provider resolves to.
+//
+// SseStreamLimiter is module-local: only SseController takes slots, and the
+// per-user count must be one instance shared by both SSE routes.
 @Module({
   imports: [AccessCacheModule],
   controllers: [SseController],
-  providers: [NotifyBusService, AdminGuard],
+  providers: [NotifyBusService, SseStreamLimiter, AdminGuard],
   exports: [NotifyBusService],
 })
 export class SseModule {}
