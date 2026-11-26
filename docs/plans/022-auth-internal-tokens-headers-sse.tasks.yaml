@@ -1,0 +1,1138 @@
+nexus-tasks: 1
+phases:
+  - key: '1'
+    name: Headers and SSE limits
+    tasks:
+      - id: T1
+        title: 'Security headers and an in-flight limit on the `auth` router; `x-powered-by` off'
+        after: []
+        files:
+          - apps/auth/deploy.yml
+          - apps/auth/next.config.js
+          - apps/auth/src/services/__tests__/auth-router-hardening.spec.ts
+        status: todo
+        body: |-
+          The `auth` router (labels on the `auth-frontend` service in `apps/auth/deploy.yml`) has no
+          middlewares, and `https://auth.lilnas.io/login` answers with no HSTS, no
+          `X-Frame-Options`, no CSP, and `x-powered-by: Next.js`. Add two middlewares to that
+          router and turn the Next header off.
+
+          Add exactly these labels to `auth-frontend`, beside the existing `auth` router labels:
+          ```yaml
+          - traefik.http.routers.auth.middlewares=auth-security-headers,auth-inflight
+          - traefik.http.middlewares.auth-security-headers.headers.stsseconds=31536000
+          - traefik.http.middlewares.auth-security-headers.headers.framedeny=true
+          - traefik.http.middlewares.auth-security-headers.headers.contenttypenosniff=true
+          - traefik.http.middlewares.auth-security-headers.headers.contentsecuritypolicy=frame-ancestors 'none'
+          - traefik.http.middlewares.auth-inflight.inflightreq.amount=64
+          - traefik.http.middlewares.auth-inflight.inflightreq.sourcecriterion.ipstrategy.depth=0
+          ```
+          Add a short comment above them: what each middleware is for; HSTS is for this host only
+          (no `stsincludesubdomains`, no `stspreload`); the in-flight limit is per source IP, and
+          the `ipstrategy` line is required because Traefik's default groups by request host, which
+          would make 64 a global limit; the headers middleware comes first so a 429 from the limit
+          also carries the headers.
+
+          In `apps/auth/next.config.js` add `poweredByHeader: false` to the returned config (both
+          build phases return the same object).
+
+          In `apps/auth/deploy.yml`, extend the comment above the `/storage/app-data/lilnas-auth:/data`
+          volume: the directory must be owned by UID 1000 with mode 700 and the database files mode
+          600 (`chmod 700 /storage/app-data/lilnas-auth && chmod 600 /storage/app-data/lilnas-auth/lilnas-auth.db*`),
+          because the database holds emails, session tokens and Google OAuth tokens and other host
+          accounts must not read it. Keep the existing `chown` line. Comment only.
+
+          Edge cases:
+          - Labels go on `auth-frontend` only. The `auth` (backend) service keeps no `traefik.*`
+            label; `frontend-isolation.spec.ts` checks that and must pass unedited.
+          - Neither middleware name contains `lilnas-auth`.
+          - Change nothing else in `deploy.yml`: no env, no healthcheck, no other label.
+          - The file fails `prettier -c` at base; match its style, don't reformat it.
+
+          Tests, in the new `auth-router-hardening.spec.ts` (backend project; parse the YAML the
+          way `frontend-isolation.spec.ts` does):
+          - the `auth` router's `middlewares` label is exactly `auth-security-headers,auth-inflight`
+          - each of the six middleware labels exists on `auth-frontend` with exactly the value above
+          - no label sets `stsincludesubdomains` or `stspreload` on `auth-security-headers`
+          - no middleware defined in `apps/auth/deploy.yml` has a name containing `lilnas-auth`
+          - `require('apps/auth/next.config.js')` called with `PHASE_PRODUCTION_BUILD`,
+            `PHASE_PRODUCTION_SERVER` and `PHASE_DEVELOPMENT_SERVER` (from `next/constants`) returns
+            `poweredByHeader === false` each time
+      - id: T2
+        title: '`/sse/pending` returns 401 without a session; a per-user cap on open streams'
+        after: []
+        files:
+          - apps/auth/src/sse/
+          - apps/auth/src/env.ts
+          - apps/auth/.env.example
+          - apps/auth/README.md
+        status: todo
+        body: |-
+          `GET /sse/pending` (`apps/auth/src/sse/sse.controller.ts`, public as `/api/sse/pending`
+          through the Next rewrite) gives anyone, signed in or not, an endless keepalive stream.
+          Reject requests that can never receive data, and cap how many streams one user holds.
+
+          New provider in `SseModule`:
+          ```ts
+          // apps/auth/src/sse/sse-stream-limiter.service.ts
+          @Injectable()
+          export class SseStreamLimiter {
+            /** Takes a slot for the user. Returns an idempotent release function, or null at the cap. */
+            acquire(userId: string): (() => void) | null
+            openStreams(userId: string): number
+          }
+          ```
+          The cap is `SSE_MAX_STREAMS_PER_USER` (add to `EnvKeys`), default 6; a value that is not
+          an integer of at least 1 falls back to 6. One count per user, shared by `/sse/pending` and
+          `/sse/admin`.
+
+          `pending()`:
+          - no session (`accessCache.resolveSession(req.headers.cookie)` is null): throw
+            `UnauthorizedException` before any stream starts. No slot is taken.
+          - a session but no `host` query value (missing, empty or whitespace): throw
+            `BadRequestException`. No slot is taken.
+          - at the cap: throw `new HttpException('Too many open streams', HttpStatus.TOO_MANY_REQUESTS)`.
+          - otherwise take a slot and return the same merged data and keepalive stream as today.
+
+          `admin()`: `AdminGuard` stays as it is (401 and 403). After it, resolve the session the
+          same way to get the `userId`, apply the same cap and 429, then return today's stream.
+
+          Releasing a slot: call the release function both when the returned Observable is torn
+          down and on the request's `close` event, so a slot is freed whichever comes first and is
+          never left behind if Nest never subscribes. The release is idempotent. Delete a user's
+          entry when the count reaches zero, so the map does not grow.
+
+          Do not change `apps/auth/src/app/pending/pending-client.tsx` or
+          `apps/auth/src/app/admin/admin-dashboard-client.tsx`. Both already handle a non-2xx
+          answer: the browser closes the `EventSource` for good, the `error` handler rechecks and
+          rebuilds it after 5 s, and a 30 s poll keeps the page correct with no stream. Read them
+          to confirm, and say in your result what a signed-out pending tab and a seventh tab now do.
+
+          Rewrite the comment block at the top of `sse.controller.ts`: the "no auth failure
+          response, keepalive only" posture is gone. Keep comments that are still true.
+
+          Docs: add `SSE_MAX_STREAMS_PER_USER` to the env table in `apps/auth/README.md` (dev and
+          prod value unset, default 6) and, commented out, to `apps/auth/.env.example`.
+
+          Tests. Replace the keepalive-for-anonymous cases in
+          `src/sse/__tests__/sse.controller.spec.ts`; keep the topic-scoping cases. Add an
+          HTTP-level spec that boots a real Nest app from a testing module (the controller, the
+          limiter, `NotifyBusService`, a fake `AccessCacheService`; `AdminGuard` with the fake) on
+          an ephemeral port and uses `node:http` as `src/verify/__tests__/strip-cookie.controller.spec.ts`
+          does. Set `SSE_KEEPALIVE_MS` small. Cover:
+          - no cookie: status 401, a JSON body, `content-type` is not `text/event-stream`, the
+            response ends, `openStreams` is 0
+          - session and host: 200, `text/event-stream`, a keepalive arrives, and a
+            `status-changed` event arrives after `publishStatusChange` for that user and host only
+          - session, no host: 400
+          - six streams open for one user: the seventh is 429; another user still gets 200
+          - closing one of the six from the client frees a slot: `openStreams` drops to 5 and a new
+            request gets 200
+          - `/sse/admin`: 401 with no session, 403 for a non-admin, 200 for an admin, and admin
+            streams count toward the same cap as pending streams
+          - release runs once when both the teardown and the `close` event fire (the count never
+            goes below zero)
+          - limiter unit cases: default 6, env override, invalid env values fall back to 6, entry
+            removed at zero
+      - id: T3
+        title: 'Live rig: the labels on Traefik v3.7.15 and SSE through the real image'
+        after:
+          - T1
+          - T2
+        files:
+          - apps/auth/scripts/hardening-rig/
+        status: todo
+        body: |-
+          The specs for the previous two tasks fake two boundaries: Traefik reading Docker labels,
+          and the Next rewrite proxy between the browser and the backend. Cross both for real, in
+          throwaway containers, and report what you find. Also prove the cookie-drop label that a
+          later phase puts on turbo and emby.
+
+          Write the rig as scripts under `apps/auth/scripts/hardening-rig/` with a short README
+          (what it checks, how to run it, that it always tears down). Read
+          `apps/auth/scripts/cookie-rig/README.md` first and reuse its pieces: `rig.sh` for the
+          structure and teardown, `mint-session.mjs` for a signed session cookie against a
+          throwaway database (it refuses a `DATABASE_PATH` under `/data` or `/storage`), and
+          `echo.mjs` as a backend that reports the headers it received.
+
+          Hard rules, because the production Traefik watches the same Docker daemon:
+          - Never put `traefik.enable=true` on a rig container. Production Traefik runs with
+            `exposedByDefault=false` and ignores containers without it.
+          - Run the rig's own `traefik:v3.7.15` with the Docker socket mounted read-only,
+            `--providers.docker.exposedByDefault=true`, a constraint such as
+            ``--providers.docker.constraints=Label(`hardening-rig`,`1`)``, the rig network as
+            `--providers.docker.network`, and `web` plus `websecure` entrypoints (default
+            self-signed certificate). No published ports.
+          - Prefix every rig router, service and middleware name with `rig-`, and use hosts under
+            `rig.test`.
+          - After the rig is up, check `docker logs lilnas-traefik-1 --since 5m` shows no line
+            mentioning `rig-` and no new error. If it does, tear down at once and report it.
+          - Build the auth image once from this worktree with a throwaway tag
+            (`docker build -f apps/auth/Dockerfile -t hardening-rig-auth:<random> .`), with no other
+            docker build or jest run going. Run the backend from it with `node dist/main`, test
+            values for every secret, a throwaway database, and the network alias `auth` on the rig
+            network (production builds proxy to `http://auth:8081`); run the frontend from it with
+            `node frontend/apps/auth/server.js` and `AUTH_BACKEND_URL=http://auth:8081`. Never use
+            `apps/auth/deploy.yml`.
+          - If the build fails on a base image, `docker pull` the `ghcr.io/codemonkey800/lilnas-*`
+            images the Dockerfile names (local copies can be stale). Do not run
+            `infra/base-images/build-base-images.sh`.
+
+          Matrix. Generate the rig's labels from the lines in `apps/auth/deploy.yml` (renamed with
+          the `rig-` prefix) so the test covers what will ship:
+          1. Headers, over TLS through the rig Traefik to the frontend: `/login` is 200 with
+             `strict-transport-security: max-age=31536000` (no `includeSubDomains`, no `preload`),
+             `x-frame-options: DENY`, `x-content-type-options: nosniff` and
+             `content-security-policy: frame-ancestors 'none'`. The same headers are on a 404.
+          2. `x-powered-by` is absent on `/login`, both straight from the frontend container and
+             through Traefik.
+          3. In-flight limit, with the rig copy's `amount` lowered to 3 and the `ipstrategy` line
+             kept: client container A holds 3 requests open; A's fourth is 429 and carries the
+             security headers; at the same moment client container B (a different address) gets
+             200. As a control, remove the `ipstrategy` line and show B is then refused too.
+          4. SSE through Traefik, the Next rewrite and the backend (`SSE_KEEPALIVE_MS=1000`):
+             - `/api/sse/pending?host=x.rig.test` with no cookie: 401 within a second, not a stream
+             - with a minted session and a host: 200, `text/event-stream`, a keepalive arrives
+             - six streams open for the minted user: the seventh is 429
+             - close one client: within 5 s a new request is 200. This is the main risk: if the
+               slot is not released through the Next proxy, report it as a blocking defect
+             - `/api/sse/admin` with a minted admin session: 200; with no cookie: 401
+          5. Cookie drop: a rig router in front of `echo.mjs` with
+             `traefik.http.middlewares.rig-drop-cookies.headers.customrequestheaders.Cookie=` (empty
+             value). Over HTTP/1.1 cleartext, HTTP/1.1 TLS and HTTP/2 TLS, with cookies in one
+             header and split over two, and on a WebSocket upgrade: the backend receives no
+             `Cookie` header at all, while `Authorization` and `X-Emby-Token` arrive unchanged. A
+             control router without the middleware shows the cookies arriving.
+          6. Sign-in still starts: `POST /api/auth/sign-in/social` through the rig with JSON
+             `{"provider":"google","callbackURL":"/"}` and a matching `Origin` returns a Google
+             URL. Print cookie names only.
+
+          Report a table of case, expected, observed. Put every mismatch under `defects:`, marked
+          blocking when it would break or weaken the first push. Show the teardown: no container,
+          network, image or temp file left, and nothing in `docker ps -a` or `docker network ls`
+          with the rig prefix.
+      - id: H1
+        title: Check whether a signed-in Emby web session uses cookies
+        after: []
+        files: []
+        status: todo
+        body: |-
+          This decides whether emby gets the cookie-drop middleware in phase 4. That middleware
+          deletes every cookie on requests to emby, so it is only safe if Emby uses none.
+
+          Known so far: unauthenticated responses from `emby.lilnas.io` set no cookie, and the web
+          client's API code has no `document.cookie` (it uses local storage and `X-Emby-Token`). A
+          signed-in session has not been checked.
+
+          Check, in a browser signed in to Emby at `https://emby.lilnas.io`:
+          1. DevTools, Application, Cookies, `https://emby.lilnas.io`. Ignore
+             `__Secure-lilnas-auth.*` (domain `.lilnas.io`): that is the cookie being removed. Is
+             any other cookie listed?
+          2. DevTools, Network: reload, start playing something, and look at a few responses from
+             `/emby/...`. Does any carry a `Set-Cookie` header?
+
+          Approve with a note:
+          - `emby uses no cookies`: emby gets the middleware.
+          - `emby uses cookies`: emby is left as it is, and only turbo gets the middleware.
+      - id: H2
+        title: Tighten the auth database directory on the host
+        after: []
+        files: []
+        status: todo
+        body: |-
+          `/storage/app-data/lilnas-auth` is mode 755 and its files 644, so any host account can
+          read emails, session tokens and Google OAuth tokens. There is also a stale copy,
+          `lilnas-auth.db.bak-20261012-211150`. Everything is owned by your account (uid 1000,
+          also the container's user), so no sudo and no restart are needed.
+
+          Run:
+          ```bash
+          chmod 700 /storage/app-data/lilnas-auth
+          chmod 600 /storage/app-data/lilnas-auth/lilnas-auth.db*
+          # the October copy: delete it ...
+          rm /storage/app-data/lilnas-auth/lilnas-auth.db.bak-20261012-211150
+          # ... or keep it somewhere private instead:
+          # install -d -m 700 /storage/backups/lilnas-auth && mv /storage/app-data/lilnas-auth/lilnas-auth.db.bak-20261012-211150 /storage/backups/lilnas-auth/
+          ```
+
+          Check:
+          - `stat -c '%a %n' /storage/app-data/lilnas-auth /storage/app-data/lilnas-auth/*` shows
+            700 for the directory and 600 for each file
+          - `docker compose -p lilnas ps auth` is healthy, and a gated site still loads
+
+          Limit: this locks out other host accounts only. Anything running as you, or as root,
+          still reads the files.
+
+          Approve when done. The note in `apps/auth/deploy.yml` is updated by another task.
+  - key: '2'
+    name: Ship push 1; tokens sent and accepted, not required
+    tasks:
+      - id: H3
+        title: 'Go/no-go: push the headers and the SSE limits'
+        after:
+          - T3
+        files: []
+        status: todo
+        body: |-
+          Approving lets the next task push phase 1 to `main`. CI rebuilds the auth image and
+          redeploys `auth` and `auth-frontend`.
+
+          What the deploy does:
+          - adds HSTS (one year, this host only), frame deny, `frame-ancestors 'none'` and nosniff
+            to every response from `auth.lilnas.io`, and removes `x-powered-by`
+          - limits one source address to 64 requests in flight on `auth.lilnas.io`
+          - makes `/api/sse/pending` answer 401 without a session and caps each user at 6 open
+            streams
+          - restarts auth: gated sites return errors for about 10 s
+
+          Before approving:
+          - read T3's result: every matrix row passed, above all "closing a stream frees a slot"
+            and the per-address in-flight rows, and nothing was left running
+          - read the phase 1 review
+          - don't push anything else to `main` until the push task has finished (it stops if
+            `origin/main` has moved)
+
+          Rollback, by you. The labels live in the compose file, so the full rollback is to revert
+          the pushed commits on `main` and push. If only the SSE change misbehaves,
+          `cd /opt/lilnas && sudo -u deploy env LILNAS_TAG=<sha before the push> docker compose up -d auth`
+          puts the old backend image back; the push task reports that sha.
+
+          Request changes to hold the push.
+      - id: T4
+        title: Push 1 to main, watch CI, verify production
+        after:
+          - H3
+        files: []
+        status: todo
+        body: |-
+          A human approved this push. Push the phase 1 work to `main`, watch the deploy, verify
+          production. Commit nothing.
+
+          Before pushing, all of these must hold. If one does not, stop and report it without
+          pushing:
+          - `git fetch origin main`, then `git merge-base --is-ancestor origin/main HEAD` succeeds
+            (never rebase, merge or force)
+          - `git diff --stat origin/main..HEAD` touches only `apps/auth/**` and `docs/plans/**`
+          - `HEAD` contains the work: `apps/auth/deploy.yml` has the `auth-security-headers` and
+            `auth-inflight` labels, `apps/auth/next.config.js` has `poweredByHeader: false`,
+            `apps/auth/src/sse/sse-stream-limiter.service.ts` exists
+          - `HEAD` does not contain later work: no `apps/auth/src/internal/internal-token.guard.ts`
+          - `pnpm lilnas ci detect --base origin/main --head HEAD --json` lists image `auth` only
+          - record `git rev-parse origin/main` as the rollback sha
+
+          Push with `git push origin HEAD:main`. Find the run with
+          `gh run list --workflow ci.yml --branch main --event push --limit 5 --json databaseId,headSha,status,url`
+          (match `headSha`) and follow it with `gh run watch <id> --exit-status`. If the run is red
+          or the auth image was held back, report it with the failing job's log and stop: the old
+          image is still running.
+
+          After the deploy, check production (read-only):
+          - `docker compose -p lilnas ps auth auth-frontend` shows new, healthy containers;
+            `docker logs lilnas-auth-1 --since 15m` has no error
+          - `docker logs lilnas-traefik-1 --since 15m` has no error naming the `auth` router or
+            either middleware
+          - `curl -sS -D - -o /dev/null https://auth.lilnas.io/login` is 200 with
+            `strict-transport-security: max-age=31536000`, `x-frame-options: DENY`,
+            `x-content-type-options: nosniff`, `content-security-policy: frame-ancestors 'none'`,
+            and no `x-powered-by`
+          - `curl -sS -m 5 -o /dev/null -w '%{http_code} %{time_total}' 'https://auth.lilnas.io/api/sse/pending?host=x.lilnas.io'`
+            is 401 in well under 5 s; `/api/sse/admin` is 401
+          - 20 parallel requests to `/login` from this host all return 200 (the in-flight limit
+            does not bite on normal use)
+          - `/api/auth/ok` and `/.well-known/openid-configuration` are 200; `/verify`,
+            `/strip-cookie`, `/internal/host-activity?host=x.lilnas.io&hours=1`,
+            `/admin/check?email=a@b.c`, `/me`, `/health` and `/requests/status` on
+            `auth.lilnas.io` are 404; `https://sonarr.lilnas.io/` is a 302 to the login page
+          - starting a sign-in (`POST https://auth.lilnas.io/api/auth/sign-in/social` with JSON
+            `{"provider":"google","callbackURL":"/"}` and `Origin: https://auth.lilnas.io`) returns
+            a Google URL and sets cookies whose names start with `__Secure-lilnas-auth.`. Print
+            names and attributes only
+
+          Report the pushed sha, the rollback sha, the CI run URL, each check with what you
+          observed, and the rollback steps for the human: revert the pushed commits on `main` and
+          push; or, for the backend image only,
+          `cd /opt/lilnas && sudo -u deploy env LILNAS_TAG=<rollback sha> docker compose up -d auth`.
+          Do not run either yourself. Put any failed check under `defects:`.
+      - id: H4
+        title: Check sign-in, the pending page and the admin dashboard after push 1
+        after:
+          - T4
+        files: []
+        status: todo
+        body: |-
+          Push 1 is live. In a browser:
+          1. Sign out at `https://auth.lilnas.io`, then open a gated site (for example
+             `https://sonarr.lilnas.io`) and sign in with Google. You land on the site.
+          2. Open `https://auth.lilnas.io/admin`. The dashboard loads; approving or editing
+             something updates the page without a reload (the admin stream works).
+          3. If you can, with a second Google account that has no grant: open a gated site, reach
+             the "Waiting for approval" page, approve it from the admin dashboard, and watch the
+             pending tab move on by itself.
+          4. Sign in to Immich through "Login with lilnas" (OIDC). It still works.
+          5. DevTools, Network, any `auth.lilnas.io` response: `strict-transport-security`,
+             `x-frame-options: DENY` and `content-security-policy` are present, `x-powered-by` is
+             not.
+
+          Approve if all of that works. If sign-in or a page breaks, roll back as T4's result
+          describes and request changes with what you saw.
+      - id: T5
+        title: '`InternalTokenGuard` on the internal routes, allow-and-log unless enforced'
+        after:
+          - T4
+        files:
+          - apps/auth/src/internal/
+          - apps/auth/src/admin/admin-check.controller.ts
+          - apps/auth/src/admin/__tests__/admin-check.controller.spec.ts
+          - apps/auth/src/app.module.ts
+          - apps/auth/src/env.ts
+          - apps/auth/README.md
+        status: todo
+        body: |-
+          `GET /admin/check` (`src/admin/admin-check.controller.ts`), `GET /internal/discord-link`
+          and `POST /internal/discord-identity` (`src/internal/discord-internal.controller.ts`) and
+          `GET /internal/host-activity` (`src/internal/host-activity.controller.ts`) have no auth:
+          any container on the Docker network can call them. Add a guard that knows each caller by
+          its bearer token and each caller's scopes (the contract is in Context). This task ships
+          it in observe mode: without `INTERNAL_TOKEN_ENFORCE=true` the guard never rejects.
+
+          ```ts
+          // apps/auth/src/internal/internal-callers.ts
+          export const INTERNAL_SCOPES = [
+            'admin-check', 'discord-link:read', 'discord-identity:write', 'host-activity:read',
+          ] as const
+          export type InternalScope = (typeof INTERNAL_SCOPES)[number]
+          export const INTERNAL_CALLERS: Record<
+            string,
+            { tokenEnv: string; scopes: readonly InternalScope[] }
+          > // download, icloud-backup, dev, dev-idle-reaper, exactly as in Context
+
+          // apps/auth/src/internal/internal-token.guard.ts
+          export const RequireInternalScope: (scope: InternalScope) => MethodDecorator
+          @Injectable()
+          export class InternalTokenGuard implements CanActivate {}
+          export type InternalAuthOutcome = 'ok' | 'missing' | 'invalid' | 'forbidden'
+          ```
+          Put `@UseGuards(InternalTokenGuard)` on the four controller classes and
+          `@RequireInternalScope(...)` on each handler; provide the guard in `AppModule`. Add the
+          four token env names and `INTERNAL_TOKEN_ENFORCE` to `EnvKeys`.
+
+          Guard rules:
+          - Read the token from `Authorization: Bearer <token>` (scheme case-insensitive). No
+            header: `missing`. Any other shape, or a token that matches no caller: `invalid`.
+          - A caller's token is its env var's value. A value that is unset or shorter than 32
+            characters disables that caller: nothing matches it. If two callers have the same
+            value, both are disabled and one error is logged at startup. Never throw at startup:
+            a boot failure of auth takes every gated site down.
+          - Compare in constant time: `crypto.timingSafeEqual` over SHA-256 digests of the
+            presented and the configured token.
+          - A matched caller without the handler's scope: `forbidden`. A guarded handler with no
+            scope metadata is `forbidden` for everyone.
+          - Enforcing (`INTERNAL_TOKEN_ENFORCE` is exactly `true`): `missing` and `invalid` throw
+            `UnauthorizedException`; `forbidden` throws `ForbiddenException`. Not enforcing: every
+            outcome is allowed through.
+          - Log one line per guarded request through `PinoLogger`:
+            `{ event: 'internal-auth', outcome, caller, scope, enforced, remoteAddress }`, with
+            `caller` the caller's name or null. Level info for `ok`, warn for the rest. Never log
+            the token, the header or a digest.
+          - Read the env per request or once at module init, but the spec must be able to set it.
+
+          Edge cases:
+          - `/verify`, `/strip-cookie`, `/health`, `/me`, `/requests/*`, the session-guarded
+            `/admin/*` routes and `/sse/*` get no token guard. `AdminController` keeps `AdminGuard`
+            only; `AdminCheckController` is the separate class at `/admin/check`.
+          - Responses and status codes for an allowed request are unchanged, including the 200
+            for an unknown Discord link and the 400s.
+          - Rewrite the "Guard-free by design" comments in the three controller files: the network
+            is no longer the only control.
+
+          Docs, in `apps/auth/README.md`: a short "Internal routes" section (the caller and scope
+          table, the header, the observe and enforce modes, how to add a caller) and rows in the
+          env table for the four `INTERNAL_TOKEN_*` variables and `INTERNAL_TOKEN_ENFORCE` (unset
+          in dev; production values come from `.env.prod` and `deploy.yml`). Update the "Residual
+          risk" paragraph that lists the backend's unauthenticated routes.
+
+          Tests. Boot a real Nest app over HTTP as `src/verify/__tests__/strip-cookie.controller.spec.ts`
+          does, with test tokens in the env:
+          - enforcing, per route: the right caller's token is 200 (or the route's own 400 for a
+            bad query); no header is 401; a garbage token is 401; a real token of a caller without
+            the scope is 403. Cover every caller and route pair in the Context table, including
+            that `dev` and `icloud-backup` get 403 on `POST /internal/discord-identity` and
+            `download` gets 403 on `/internal/host-activity`
+          - not enforcing: all of the above return what the route returned before, and the log
+            line carries the right `outcome` and `caller`
+          - `INTERNAL_TOKEN_ENFORCE` set to `1`, `TRUE` or empty does not enforce; only `true` does
+          - an unset token, a 31-character token and two callers sharing one value never match
+          - `Bearer` in another case works; `Basic`, a bare token and an empty bearer are `invalid`
+          - no log line contains a token
+          - `/health`, `/verify` and `/strip-cookie` answer without a token while enforcing
+          - a reflective spec: every handler on the four controllers has scope metadata, and the
+            scope and caller tables equal the Context contract
+          - existing controller specs that construct controllers directly still pass
+      - id: T6
+        title: '`AuthClient` sends the bearer token'
+        after:
+          - T4
+        files:
+          - packages/utils/src/auth/
+        status: todo
+        body: |-
+          `packages/utils/src/auth/client.ts` is the shared client `apps/download` and
+          `apps/icloud-backup` use for `GET /admin/check`, `GET /internal/discord-link` and
+          `POST /internal/discord-identity`. Make it send the caller's token.
+
+          ```ts
+          export class AuthClient {
+            constructor(baseUrl?: string, token?: string) // token defaults to process.env.AUTH_INTERNAL_TOKEN
+            static get localInstance(): AuthClient
+            static get dockerInstance(): AuthClient
+          }
+          ```
+          When the token is a non-empty string after trimming, every request carries
+          `Authorization: Bearer <token>`. Otherwise no `Authorization` header is sent and the
+          client behaves exactly as today, so a dev stack without the variable keeps working.
+
+          Edge cases:
+          - `localInstance` and `dockerInstance` read the env when they are called, not at import.
+          - The token never appears in a thrown error, a log or a URL. A 401 or 403 from auth
+            throws the existing "failed with <status>" error, which the callers already catch
+            (`AdminCheckService` fails closed, `DiscordLinkService` fails open). Do not change the
+            callers.
+          - Method signatures, return shapes, the 2 s timeout and `Content-Type` are unchanged.
+          - Update the class comment: the routes are no longer open to the whole network.
+
+          Tests, in `packages/utils/src/auth/__tests__/client.spec.ts` (run with
+          `cd packages/utils && NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' pnpm exec jest src/auth --maxWorkers=2`):
+          - with a constructor token, and with `AUTH_INTERNAL_TOKEN` set, all three methods send
+            `Authorization: Bearer <token>`
+          - with neither, with an empty string and with whitespace, no `Authorization` header is
+            sent
+          - a constructor token wins over the env
+          - a 401 and a 403 reject with a message that contains the status and not the token
+          - the existing cases still pass
+      - id: T7
+        title: The dev dashboard and the idle reaper send the bearer token
+        after:
+          - T4
+        files:
+          - apps/dev/src/activity/
+          - apps/dev/src/env.ts
+          - apps/dev-idle-reaper/reaper.sh
+        status: todo
+        body: |-
+          Two callers reach `GET /internal/host-activity` on the auth backend without the shared
+          client. Both must send `Authorization: Bearer <token>` with the token from
+          `AUTH_INTERNAL_TOKEN`, and behave exactly as today when the variable is unset or empty.
+
+          `apps/dev/src/activity/host-activity.service.ts`: add `AUTH_INTERNAL_TOKEN` to `EnvKeys`
+          in `apps/dev/src/env.ts`; `fetchActivity` adds the header when the value is non-empty.
+          Any non-200 answer, 401 and 403 included, still resolves to `null` and is not cached.
+
+          `apps/dev-idle-reaper/reaper.sh` (POSIX `sh` on Alpine, curl and jq): read
+          `AUTH_INTERNAL_TOKEN="${AUTH_INTERNAL_TOKEN:-}"` beside `AUTH_URL`, and in
+          `fetch_host_activity` pass the header to curl without putting the token on the command
+          line, where `ps` on the host would show it: feed curl a config on stdin, for example
+          `printf 'header = "Authorization: Bearer %s"\n' "$AUTH_INTERNAL_TOKEN" | curl --config - ...`,
+          and only when the token is non-empty. A non-200 answer still makes the function fail, so
+          the unit is not reaped that poll. Never log the token: the startup line prints
+          `AUTH_URL` and may say whether a token is set, nothing more. Update the header comment
+          that describes the call.
+
+          Tests:
+          - `apps/dev/src/activity/__tests__/host-activity.service.spec.ts`: header sent when the
+            env is set, absent when unset or empty, 401 and 403 resolve to `null` and are retried
+            on the next call (run with
+            `cd apps/dev && NODE_OPTIONS='--experimental-vm-modules --no-warnings=ExperimentalWarning' pnpm exec jest src/activity --maxWorkers=2`)
+          - the reaper has no test harness. Show in your result, with a throwaway `node` or `nc`
+            listener on localhost and a test value, that the `fetch_host_activity` function taken
+            from the file sends the header when the variable is set, sends none when it is unset,
+            and that the token is not in the process arguments (`ps`) while curl runs. Remove the
+            listener afterwards. `sh -n apps/dev-idle-reaper/reaper.sh` must pass.
+      - id: T8
+        title: Generate the four tokens and wire the env files
+        after:
+          - T5
+          - T6
+          - T7
+        files:
+          - apps/auth/.env.prod
+          - apps/auth/.env.example
+          - apps/download/.env.prod
+          - apps/download/.env.example
+          - apps/icloud-backup/.env.prod
+          - apps/icloud-backup/.env.example
+          - apps/dev/.env.prod
+          - apps/dev/.env.example
+          - apps/dev/deploy.yml
+          - apps/dev-idle-reaper/.env.prod
+          - apps/dev-idle-reaper/deploy.yml
+          - docs/deploy.md
+        status: todo
+        body: |-
+          Create one random token per caller and store each in two encrypted env files: auth's,
+          under the caller's `INTERNAL_TOKEN_*` name, and the caller's own, as
+          `AUTH_INTERNAL_TOKEN`. Production env files are committed encrypted with dotenvx
+          (`docs/deploy.md`, Secrets); compose reads a gitignored `.decrypted` sibling.
+
+          | Caller | In `apps/auth/.env.prod` | `AUTH_INTERNAL_TOKEN` in |
+          | --- | --- | --- |
+          | download | `INTERNAL_TOKEN_DOWNLOAD` | `apps/download/.env.prod` |
+          | icloud-backup | `INTERNAL_TOKEN_ICLOUD_BACKUP` | `apps/icloud-backup/.env.prod` |
+          | dev | `INTERNAL_TOKEN_DEV` | `apps/dev/.env.prod` (new) |
+          | dev-idle-reaper | `INTERNAL_TOKEN_DEV_IDLE_REAPER` | `apps/dev-idle-reaper/.env.prod` (new) |
+
+          How, without a value ever reaching your output or a file other than these:
+          - Generate and set each pair in one shell command, with the value only in a shell
+            variable: `T=$(openssl rand -hex 32)`, then
+            `pnpm exec dotenvx set <NAME> "$T" -f <file> >/dev/null` for both files, then
+            `unset T`. No `set -x`, no `echo`. `dotenvx set` needs only the
+            `DOTENV_PUBLIC_KEY_PROD` line already in the file.
+          - The two new files: start each with the dotenvx header comment and the
+            `DOTENV_PUBLIC_KEY_PROD="…"` line copied from `apps/download/.env.prod`, so they share
+            the existing PROD key and need no new private key on the host. Then `dotenvx set`.
+          - Do not set `INTERNAL_TOKEN_ENFORCE` anywhere. Enforcement is a later task.
+          - Do not run `pnpm lilnas secrets decrypt` and do not create any `.decrypted` file.
+
+          Compose:
+          - `apps/dev/deploy.yml`: add `env_file: [.env.prod.decrypted]` to `dev-dashboard`, in the
+            file's own list style, and correct the header comment that says the app holds no
+            secrets and has no `env_file`.
+          - `apps/dev-idle-reaper/deploy.yml`: add the same `env_file` to `dev-idle-reaper`, with a
+            comment that it carries the auth token.
+          - No other compose change. `apps/download/deploy.yml` and
+            `apps/icloud-backup/deploy.yml` already load `.env.prod.decrypted` on the backend
+            service; the `icloud-backup-frontend` and `auth-frontend` services must not gain it.
+
+          Examples and docs:
+          - `.env.example` of download, icloud-backup and dev: `AUTH_INTERNAL_TOKEN=` with a
+            one-line comment (empty in dev: the dev auth does not enforce).
+          - `apps/auth/.env.example`: the four `INTERNAL_TOKEN_*` names and
+            `INTERNAL_TOKEN_ENFORCE`, commented out, with a short comment.
+          - `docs/deploy.md`, Secrets: the count of env files and the `apps/{…}/.env.prod` list
+            now include `dev` and `dev-idle-reaper`.
+
+          Verify, and report each as pass or fail with lengths and counts only:
+          - `git add` the two new files, then `pnpm lilnas secrets verify` exits 0
+          - every new key's stored value starts with `encrypted:` (`grep -c`)
+          - with the real keys, read-only: for each of the eight entries,
+            `pnpm exec dotenvx get <NAME> -fk /home/jeremy/lilnas/.env.keys -f <file> | tr -d '\n' | wc -c`
+            prints 64. Never print the value itself
+          - each pair is equal and the four tokens differ from each other: compare
+            `... | sha256sum` outputs inside the shell (`[ "$a" = "$b" ]`), print only the verdicts
+          - `git status --short` shows no `.env.keys` and no `.decrypted` file
+          - `pnpm lilnas ci detect --base origin/main --head HEAD --json` has `decrypt: true` and
+            `decryptServices` containing `auth`, `download`, `icloud-backup`, `dev-dashboard` and
+            `dev-idle-reaper`, and not `auth-frontend` or `icloud-backup-frontend`
+      - id: T9
+        title: 'Live check: each real client against a backend that enforces'
+        after:
+          - T5
+          - T6
+          - T7
+        files:
+          - apps/auth/scripts/hardening-rig/
+        status: todo
+        body: |-
+          The guard's specs and the clients' specs each fake the other side. Run the real pieces
+          against each other in throwaway containers, with test tokens (never a production one),
+          and report what you find.
+
+          Extend the rig under `apps/auth/scripts/hardening-rig/` (read its README; if it is
+          missing, read `apps/auth/scripts/cookie-rig/README.md` and build on `rig.sh`). Start the
+          auth backend built from this worktree with a throwaway database, four distinct test
+          tokens in `INTERNAL_TOKEN_DOWNLOAD`, `INTERNAL_TOKEN_ICLOUD_BACKUP`, `INTERNAL_TOKEN_DEV`
+          and `INTERNAL_TOKEN_DEV_IDLE_REAPER`, and `INTERNAL_TOKEN_ENFORCE=true`, on an isolated
+          network. Never use `apps/auth/deploy.yml`. No Traefik is needed, and no rig container
+          may carry `traefik.enable=true`.
+
+          Checks:
+          1. The real `AuthClient` (built `packages/utils`, run with node in a container on the rig
+             network) with the download token: `checkIsAdmin` resolves, `getDiscordLink` resolves,
+             `registerDiscordIdentity` resolves for a valid test identity.
+          2. `AuthClient` with the icloud-backup token: `checkIsAdmin` resolves;
+             `registerDiscordIdentity` rejects with a 403 message.
+          3. `AuthClient` with no token and with a wrong token: each method rejects with a 401
+             message.
+          4. The dev dashboard's `HostActivityService` (the built class, or its `fetchActivity`
+             logic run unmodified) with the dev token returns an activity object; with no token
+             it returns `null`.
+          5. The reaper's real `fetch_host_activity` function, taken from
+             `apps/dev-idle-reaper/reaper.sh` and run in an `alpine` container with curl and jq:
+             succeeds with the reaper token, fails with none, fails with the download token.
+          6. Restart the backend without `INTERNAL_TOKEN_ENFORCE`: checks 2, 3 and the failing
+             parts of 4 and 5 now succeed, and the backend's log has one `internal-auth` line per
+             request with the expected `outcome` and `caller`, and no token.
+          7. `/health`, `/verify` (with `X-Forwarded-Host` and `X-Forwarded-Proto`, no cookie: a
+             302) and `/strip-cookie` answer without a token in both modes.
+
+          Report a table of check, expected, observed; mismatches under `defects:`, marked blocking
+          when a production caller would lose access once tokens are required. Show the teardown.
+  - key: '3'
+    name: Ship push 2; turn enforcement on
+    tasks:
+      - id: H5
+        title: 'Go/no-go: push the tokens (sent and accepted, not required)'
+        after:
+          - T8
+          - T9
+          - H4
+        files: []
+        status: todo
+        body: |-
+          Approving lets the next task push phase 2 to `main`.
+
+          What the deploy does:
+          - the auth backend learns the four callers' tokens and logs, for every call to an
+            internal route, who called and whether the token was right. It rejects nothing yet
+          - `download`, `icloud-backup`, the dev dashboard and the idle reaper start sending their
+            token. The dashboard and the reaper get their first encrypted env file
+          - `packages/utils` changed, so CI rebuilds and restarts every app that depends on it
+            (eleven, auth included): gated sites return errors for about 10 s and most apps
+            restart once. Pick a quiet time
+
+          Before approving:
+          - read T9's result: every real client worked against an enforcing backend
+          - read T8's result: all eight values are encrypted, 64 characters, the pairs match, and
+            `secrets verify` passed
+          - read the phase 2 review
+          - don't push anything else to `main` until the push task has finished
+
+          Rollback, by you: revert the pushed commits on `main` and push. Nothing depends on the
+          tokens until the next push, so there is no hurry if something looks off.
+
+          Request changes to hold the push.
+      - id: T10
+        title: Push 2 to main, watch CI, verify every caller is recognised
+        after:
+          - H5
+        files: []
+        status: todo
+        body: |-
+          A human approved this push. Push the phase 2 work to `main`, watch the deploy, verify
+          production. Commit nothing. Never print a token: lengths, counts and status codes only.
+
+          Before pushing, all of these must hold. If one does not, stop and report it without
+          pushing:
+          - `git fetch origin main`, then `git merge-base --is-ancestor origin/main HEAD` succeeds
+            (never rebase, merge or force)
+          - `git diff --stat origin/main..HEAD` touches only `apps/auth/**`,
+            `packages/utils/src/auth/**`, `apps/dev/**`, `apps/dev-idle-reaper/**`,
+            `apps/download/.env.prod`, `apps/download/.env.example`, `apps/icloud-backup/.env.prod`,
+            `apps/icloud-backup/.env.example`, `docs/deploy.md` and `docs/plans/**`. Nothing under
+            `infra/` or `plugins/`
+          - `grep -c INTERNAL_TOKEN_ENFORCE apps/auth/deploy.yml` is 0: enforcement must not ship
+            in this push
+          - `pnpm lilnas secrets verify` exits 0
+          - `pnpm lilnas ci detect --base origin/main --head HEAD --json` has `decrypt: true`
+          - record `git rev-parse origin/main` as the rollback sha, and note the time
+
+          Push with `git push origin HEAD:main`. Find the run with
+          `gh run list --workflow ci.yml --branch main --event push --limit 5 --json databaseId,headSha,status,url`
+          (match `headSha`) and follow it with `gh run watch <id> --exit-status`. If the run is
+          red, report which images were held back with the failing job's log and continue with the
+          checks below for what did deploy: a held-back caller is a defect that blocks the next
+          push.
+
+          After the deploy, check production (read-only apart from the probes named here):
+          - `docker compose -p lilnas ps` shows no service restarting or unhealthy
+          - token presence by length: in `lilnas-download-1`, `lilnas-icloud-backup-1`,
+            `lilnas-dev-dashboard-1` and `lilnas-dev-idle-reaper`,
+            `sh -c 'printf %s "$AUTH_INTERNAL_TOKEN" | wc -c'` prints 64; in `lilnas-auth-1` each of
+            the four `INTERNAL_TOKEN_*` is 64 and `INTERNAL_TOKEN_ENFORCE` is unset; in
+            `lilnas-auth-frontend-1` and `lilnas-icloud-backup-frontend-1` no `INTERNAL` or
+            `AUTH_INTERNAL` variable exists (print the count). Use the real container names from
+            `docker compose -p lilnas ps`
+          - a probe from inside each caller's container, using the token from that container's own
+            environment (`node -e` with `fetch`, or `curl` in the reaper), against
+            `http://auth:8081`: download: `/admin/check?email=nobody@example.com` is 200,
+            `/internal/discord-link?email=nobody@example.com` is 200, and
+            `POST /internal/discord-identity` with body `{}` is 400 (the guard passed and validation
+            refused it; never post a valid identity, it would write to the production roster);
+            icloud-backup: `/admin/check?email=nobody@example.com` is 200; dev dashboard and reaper:
+            `/internal/host-activity?host=probe.dev.lilnas.io&hours=1` is 200
+          - one real code path: read `apps/download/src/download/download.controller.ts`, pick a
+            read-only GET that resolves admin status, and call it inside the download container at
+            `http://localhost:8081` with `X-Forwarded-User: nobody@example.com`
+          - a probe with no token from a container that is not a caller (for example the portal),
+            and a probe with the dev dashboard's token against `/admin/check`: both are 200 in
+            this mode
+          - `docker logs lilnas-auth-1 --since <push time>` has `internal-auth` lines: `ok` with
+            `caller` `download`, `icloud-backup`, `dev` and `dev-idle-reaper`; `missing` for the
+            no-token probe; `forbidden` for the wrong-scope probe; and no token in any line.
+            List every other `missing`, `invalid` or `forbidden` line with its route and
+            `remoteAddress`, mapped to a container name: each is a caller that would break
+          - from the internet: `https://auth.lilnas.io/login` is 200 with the security headers;
+            `https://sonarr.lilnas.io/` is a 302 to the login page;
+            `https://download.lilnas.io/` and `https://dev.lilnas.io/` are 302 to the login page
+
+          Report the pushed sha, the rollback sha, the push time, the CI run URL, a table of
+          caller, probe, status and log outcome, and the rollback steps (revert on `main` and
+          push; do not run it). Put any failed check, held-back image or unexplained log line
+          under `defects:`.
+      - id: H6
+        title: Check the callers still get answers after push 2
+        after:
+          - T10
+        files: []
+        status: todo
+        body: |-
+          Push 2 is live: callers send tokens, auth accepts but does not require them. Read T10's
+          table first: all four callers must show `ok`.
+
+          In a browser, signed in as the admin:
+          1. `https://download.lilnas.io`: the list loads and shows who requested each item (the
+             admin-only attribution), with Discord names where a link exists.
+          2. `https://dev.lilnas.io`: the dashboard loads; a running dev stack shows its last
+             visit and idle estimate, not "unknown".
+          3. `https://icloud-backup.lilnas.io`: the admin pages load.
+          4. Sign-in on a gated site still works.
+
+          Approve if all of that works. Otherwise request changes with what you saw; nothing is
+          enforced yet, so there is no need to roll back in a hurry.
+      - id: T11
+        title: 'Require the tokens: `INTERNAL_TOKEN_ENFORCE=true` in the backend service'
+        after:
+          - T10
+        files:
+          - apps/auth/deploy.yml
+          - apps/auth/src/services/__tests__/internal-token-enforced.spec.ts
+          - apps/auth/README.md
+        status: todo
+        body: |-
+          The guard on the auth backend's internal routes allows every request until
+          `INTERNAL_TOKEN_ENFORCE=true` is set. Set it for production.
+
+          In `apps/auth/deploy.yml`, add `- INTERNAL_TOKEN_ENFORCE=true` to the `environment:` list
+          of the `auth` (backend) service, as a literal, with a comment: it makes
+          `InternalTokenGuard` reject calls to `/internal/*` and `/admin/check` without a caller
+          token; the tokens come from `.env.prod`; removing the line reopens those routes to every
+          container on the network. Nothing else in the file changes, and `auth-frontend` gains
+          nothing.
+
+          `apps/auth/deploy.dev.yml` stays without it: the dev stack does not enforce.
+
+          In `apps/auth/README.md`, set the production value of `INTERNAL_TOKEN_ENFORCE` in the env
+          table to `true` (literal in `deploy.yml`) and make the "Internal routes" and "Residual
+          risk" text say the routes now require a token in production.
+
+          Tests, in the new `internal-token-enforced.spec.ts` (parse the YAML as
+          `frontend-isolation.spec.ts` does):
+          - the `auth` service's environment has `INTERNAL_TOKEN_ENFORCE` with the exact value
+            `true`, not an interpolation
+          - `auth-frontend` has no environment key containing `INTERNAL`
+          - `apps/auth/deploy.dev.yml` does not set `INTERNAL_TOKEN_ENFORCE`
+          - `frontend-isolation.spec.ts` passes unedited
+  - key: '4'
+    name: Ship push 3; cookie drop for turbo and emby
+    tasks:
+      - id: H7
+        title: 'Go/no-go: require the tokens'
+        after:
+          - T11
+          - H6
+        files: []
+        status: todo
+        body: |-
+          Approving lets the next task push one change to `main`: `INTERNAL_TOKEN_ENFORCE=true` on
+          the auth backend. From then on `/internal/discord-link`, `/internal/discord-identity`,
+          `/internal/host-activity` and `/admin/check` answer 401 without a known token and 403 to
+          a caller outside its scope. `/verify`, `/strip-cookie` and `/health` are unaffected.
+
+          The deploy rebuilds and restarts auth: gated sites return errors for about 10 s.
+
+          Before approving:
+          - read T10's result: all four callers were logged as `ok`, and every other `missing`,
+            `invalid` or `forbidden` line is explained. An unexplained line is a caller that will
+            break
+          - read the phase 3 review
+
+          If a caller does lose access, nothing fails hard: download hides the admin-only
+          attribution, the dashboard shows "unknown" activity, the reaper stops reaping, and
+          icloud-backup refuses admin pages. Sign-in and gated sites are not affected.
+
+          Rollback, by you: revert the commit on `main` and push.
+
+          Request changes to hold the push.
+      - id: T12
+        title: Push 3 to main, watch CI, verify enforcement
+        after:
+          - H7
+        files: []
+        status: todo
+        body: |-
+          A human approved this push. Push the enforcement change to `main`, watch the deploy,
+          verify production. Commit nothing. Never print a token.
+
+          Before pushing, all of these must hold. If one does not, stop and report it without
+          pushing:
+          - `git fetch origin main`, then `git merge-base --is-ancestor origin/main HEAD` succeeds
+            (never rebase, merge or force)
+          - `git diff --stat origin/main..HEAD` touches only `apps/auth/**` and `docs/plans/**`,
+            and `git diff origin/main..HEAD -- apps/auth/deploy.yml` adds the
+            `INTERNAL_TOKEN_ENFORCE=true` line and its comment, nothing else
+          - `docker logs lilnas-auth-1 --since 24h` (or since the container started, if later):
+            every `internal-auth` line with outcome `missing`, `invalid` or `forbidden` is one of
+            the earlier verification probes (a container that is not a caller, or the dashboard's
+            token on `/admin/check`). Any such line from `lilnas-download-1`,
+            `lilnas-icloud-backup-1`, `lilnas-dev-dashboard-1` or `lilnas-dev-idle-reaper` on a
+            route in its own scope means that caller would break: stop
+          - in each of those four containers `AUTH_INTERNAL_TOKEN` is 64 characters long
+          - record `git rev-parse origin/main` as the rollback sha
+
+          Push with `git push origin HEAD:main`. Find the run with
+          `gh run list --workflow ci.yml --branch main --event push --limit 5 --json databaseId,headSha,status,url`
+          (match `headSha`) and follow it with `gh run watch <id> --exit-status`. If the run is red
+          or the auth image was held back, report it and stop: the routes are still open.
+
+          After the deploy, check production with probes against `http://auth:8081` from inside
+          containers (`node -e` with `fetch`, or `curl` in the reaper):
+          - `lilnas-auth-1` has `INTERNAL_TOKEN_ENFORCE=true` and is healthy
+          - with each caller's own token, from its own container: download:
+            `/admin/check?email=nobody@example.com` 200,
+            `/internal/discord-link?email=nobody@example.com` 200,
+            `POST /internal/discord-identity` with body `{}` 400 (never post a valid identity);
+            icloud-backup: `/admin/check?email=nobody@example.com` 200; dev dashboard and reaper:
+            `/internal/host-activity?host=probe.dev.lilnas.io&hours=1` 200
+          - from a container that is not a caller (for example the portal), with no token: each of
+            the four routes is 401. With a made-up token: 401
+          - out of scope: the dev dashboard's token on `/admin/check` is 403; the download token on
+            `/internal/host-activity` is 403; the icloud-backup token on
+            `POST /internal/discord-identity` is 403
+          - no token needed: `/health` is 200; `/verify` with `X-Forwarded-Host: sonarr.lilnas.io`,
+            `X-Forwarded-Proto: https` and no cookie is a 302 to the login page; `/strip-cookie`
+            is 200
+          - from `lilnas-auth-frontend-1`, `http://auth:8081/me` with no cookie is 401 (a session
+            route, not a token route) and `/health` is 200
+          - one real code path through download, as in the previous push: a read-only GET on the
+            download backend with `X-Forwarded-User: nobody@example.com` produces an
+            `internal-auth` `ok` line for `download`
+          - `docker logs lilnas-download-1 --since 10m` and the same for the other three callers
+            show no new "Failed to reach auth" warning
+          - from the internet: `https://auth.lilnas.io/login` is 200; `https://sonarr.lilnas.io/`
+            is a 302 to the login page; `/admin/check?email=a@b.c` and
+            `/internal/host-activity?host=x.lilnas.io&hours=1` on `auth.lilnas.io` are 404
+
+          Report the pushed sha, the rollback sha, the CI run URL, a table of probe, expected and
+          observed, and the rollback steps (revert the commit on `main` and push; do not run it).
+          Put any failed check under `defects:`.
+      - id: H8
+        title: Check the callers still work with tokens required
+        after:
+          - T12
+        files: []
+        status: todo
+        body: |-
+          Push 3 is live: the internal routes now refuse callers without a token. Read T12's
+          table first: the four callers answer 200, another container gets 401, a caller outside
+          its scope gets 403.
+
+          In a browser, signed in as the admin:
+          1. `https://download.lilnas.io`: the list still shows who requested each item.
+          2. `https://dev.lilnas.io`: a running dev stack still shows its activity, not "unknown".
+          3. `https://icloud-backup.lilnas.io`: the admin pages load.
+          4. Sign-in on a gated site still works.
+
+          Approve if all of that works. If a caller lost access, roll back by reverting the
+          enforcement commit on `main` and pushing, and request changes with what you saw.
+      - id: T13
+        title: 'Cookie-drop middleware on turbo and emby; coverage spec and README'
+        after:
+          - T12
+          - H1
+        files:
+          - infra/shared.yml
+          - infra/media.yml
+          - apps/auth/src/verify/__tests__/router-cookie-coverage.spec.ts
+          - apps/auth/README.md
+        status: todo
+        body: |-
+          The lilnas session cookie is scoped to `.lilnas.io`, so a signed-in browser sends it to
+          `turbo.lilnas.io` and `emby.lilnas.io`, which have no auth middleware and must not depend
+          on auth being up. Neither needs any cookie: turbo takes a bearer token from CI, emby's
+          clients send `X-Emby-Token`. Give each router a plain Traefik `headers` middleware that
+          deletes the `Cookie` request header. It is not forwardAuth and does not call the auth
+          backend.
+
+          Read the verdict of the human check on Emby that this task follows. If its note says
+          emby uses cookies, leave `infra/media.yml` untouched, keep `emby` in `EXEMPT` below with
+          that reason, and do everything else for turbo only. Say which case you took.
+
+          `infra/shared.yml`, on the `turbo` service, replacing the comment line that says it has
+          no auth or cookie-strip middleware:
+          ```yaml
+          # Drops every Cookie header before the cache sees the request, so a signed-in
+          # browser's lilnas session cookie never reaches it. A plain headers middleware, not
+          # forwardAuth: it does not depend on lilnas-auth being up. Only valid for an app that
+          # uses no cookies (turbo takes a bearer token).
+          - traefik.http.routers.turbo.middlewares=turbo-drop-cookies
+          - traefik.http.middlewares.turbo-drop-cookies.headers.customrequestheaders.Cookie=
+          ```
+          `infra/media.yml`, on the `emby` service, the same two labels with `emby` in place of
+          `turbo` and a comment that Emby's clients authenticate with `X-Emby-Token`.
+
+          The second label ends in `=`: an empty value is how Traefik removes a request header.
+          Keep `Cookie` capitalised. Change no other label, service or file under `infra/`; both
+          files fail `prettier -c` at base, so match their style.
+
+          `apps/auth/src/verify/__tests__/router-cookie-coverage.spec.ts`: add a fourth state.
+          - A router is `dropped` when its `middlewares` names a middleware for which some service
+            in the scanned compose files carries the label
+            `traefik.http.middlewares.<name>.headers.customrequestheaders.Cookie` with an empty
+            value.
+          - Every `lilnas.io` router is exactly one of gated, stripped, dropped or exempt.
+          - `EXPECTED_DROPPED` is exactly `['emby', 'turbo']` (or `['turbo']`), sorted.
+          - A drop middleware sets no other label than that one, and a router that has it has
+            neither `lilnas-auth` nor `lilnas-cookie-strip`.
+          - `EXEMPT` loses `turbo` and `emby` (or only `turbo`); `auth` and `immich` stay.
+          - Update the header comment of the spec.
+
+          `apps/auth/README.md`, "Cookie forwarding": add a bullet for routers that drop every
+          cookie (which ones, that it is a `headers` middleware with no auth dependency, and that
+          it is only for apps that use no cookies), and take them out of the "still receiving the
+          cookie" list. immich, `rocky-roads.lilnas.io` and bare dev routes stay on that list.
+
+          Tests: the spec above. Show it fails when the drop label's value is made non-empty, when
+          the router's `middlewares` label is removed, and when a drop middleware is added to a
+          gated router; restore the files afterwards.
+      - id: T14
+        title: 'Expose convention: public dev routes use `lilnas-cookie-strip`'
+        after:
+          - T12
+        files:
+          - docs/lilnas-expose.md
+          - plugins/lilnas/skills/expose/
+        status: todo
+        body: |-
+          The expose convention puts a Docker Compose project outside this repo at
+          `https://<name>.dev.lilnas.io`. It ships the `lilnas-auth` middleware by default and
+          today says: to go public, remove the label. A route with no middleware receives the
+          signed-in visitor's lilnas session cookie, which passes `/verify` for every host that
+          visitor may reach.
+
+          Change the convention, in `docs/lilnas-expose.md`,
+          `plugins/lilnas/skills/expose/SKILL.md`,
+          `plugins/lilnas/skills/expose/examples/docker-compose.yml`,
+          `plugins/lilnas/skills/expose/reference/convention.md` and
+          `plugins/lilnas/skills/expose/reference/caveats.md`:
+          - `middlewares=lilnas-auth` stays the shipped default.
+          - Going public means swapping the label to `middlewares=lilnas-cookie-strip`, never
+            removing the middleware. Every instruction that says "remove the label" becomes
+            "swap it", including the completion message the skill prints.
+          - A route with neither middleware is not part of the convention; say why in one place
+            (the cookie) and point to it from the others.
+          - Keep the cost stated: a `lilnas-cookie-strip` route returns errors while the auth
+            backend is down or restarting, and it is still open to the internet with no login.
+          - The example compose file keeps `lilnas-auth` active and shows the swap as the
+            commented alternative, on both example services.
+
+          Keep the documents' structure and wording style; this is a rule change, not a rewrite.
+          These files fail `prettier -c` at base: match their style and don't reformat. No code
+          and no test changes. In your result, list each place the old "remove" instruction stood
+          and what it says now (`grep -rn "remove" docs/lilnas-expose.md plugins/lilnas/skills/expose`
+          should leave no instruction to drop the middleware).
+  - key: '5'
+    name: Ship push 4
+    tasks:
+      - id: H9
+        title: 'Go/no-go: push the cookie drop and the expose convention'
+        after:
+          - T13
+          - T14
+          - H8
+        files: []
+        status: todo
+        body: |-
+          Approving lets the next task push phase 4 to `main`.
+
+          What the deploy does:
+          - turbo (and emby, unless your Emby check said it uses cookies) gets a Traefik
+            middleware that deletes the `Cookie` header on every request. Both containers are
+            recreated: a stream playing on Emby is interrupted, so pick a quiet time
+          - the expose docs change (no deploy effect)
+          - a spec and the README under `apps/auth` changed, so CI also rebuilds and restarts
+            auth: gated sites return errors for about 10 s
+          - Traefik itself is not recreated
+
+          Before approving:
+          - read T13's result: which case it took for emby, and that the coverage spec passes
+          - read the phase 4 review
+
+          Rollback, by you: revert the pushed commits on `main` and push. The labels live in the
+          compose files, so `LILNAS_TAG` does not undo them.
+
+          Request changes to hold the push.
+      - id: T15
+        title: Push 4 to main, watch CI, verify turbo and emby
+        after:
+          - H9
+        files: []
+        status: todo
+        body: |-
+          A human approved this push. Push the phase 4 work to `main`, watch the deploy, verify
+          production. Commit nothing.
+
+          Before pushing, take a snapshot of status codes (and `content-type`) for:
+          `https://turbo.lilnas.io/`, `https://turbo.lilnas.io/v8/artifacts/status`,
+          `https://emby.lilnas.io/`, `https://emby.lilnas.io/web/index.html`,
+          `https://emby.lilnas.io/emby/System/Info/Public`, `https://immich.lilnas.io/`,
+          `https://auth.lilnas.io/login`, `https://sonarr.lilnas.io/`.
+
+          Then all of these must hold. If one does not, stop and report it without pushing:
+          - `git fetch origin main`, then `git merge-base --is-ancestor origin/main HEAD` succeeds
+            (never rebase, merge or force)
+          - `git diff --stat origin/main..HEAD` touches only `infra/shared.yml`, `infra/media.yml`,
+            `apps/auth/src/verify/__tests__/router-cookie-coverage.spec.ts`, `apps/auth/README.md`,
+            `docs/lilnas-expose.md`, `plugins/lilnas/**` and `docs/plans/**`
+          - `git diff origin/main..HEAD -- infra/` changes only labels and comments on the `turbo`
+            service and, if included, the `emby` service
+          - record `git rev-parse origin/main` as the rollback sha
+
+          Push with `git push origin HEAD:main`. Find the run with
+          `gh run list --workflow ci.yml --branch main --event push --limit 5 --json databaseId,headSha,status,url`
+          (match `headSha`) and follow it with `gh run watch <id> --exit-status`. If the run is
+          red, report the failing job's log and which services did deploy.
+
+          After the deploy, check production (read-only):
+          - `docker inspect` on the turbo container (and emby's, if included) shows the two new
+            labels, the drop label with an empty value, and a start time after the push
+          - `docker logs lilnas-traefik-1 --since 15m` has no error naming the `turbo` or `emby`
+            router or either middleware, and the Traefik container was not recreated
+          - the snapshot is unchanged for every URL, and also when the request carries
+            `Cookie: a=1`
+          - `https://emby.lilnas.io/emby/System/Info/Public` still returns Emby's JSON
+          - a WebSocket handshake to `wss://emby.lilnas.io/embywebsocket` gets the same answer as
+            a handshake you make before the push (add it to the snapshot)
+          - `docker logs` of the turbo container since the deploy shows it started cleanly
+
+          You cannot see what the backends receive; the rig in phase 1 proved the label removes
+          the header. Say so in the result rather than claiming more.
+
+          Report the pushed sha, the rollback sha, the CI run URL, the before and after snapshot,
+          and the rollback steps (revert on `main` and push; do not run it). Put any difference
+          under `defects:`.
+      - id: H10
+        title: Check Emby playback and the turbo cache after push 4
+        after:
+          - T15
+        files: []
+        status: todo
+        body: |-
+          Push 4 is live. Requests to turbo (and emby, if it was included) no longer carry any
+          cookie.
+
+          Emby, if included:
+          1. Web, in the browser where you are signed in to lilnas: `https://emby.lilnas.io` still
+             shows you signed in to Emby, and a video plays.
+          2. Sign out of Emby on the web and back in.
+          3. A mobile app and a TV app: browse and play something.
+
+          Turbo:
+          4. The next CI run that builds something should report remote cache hits. To check now,
+             run `gh workflow run ci.yml -f dry_run=true -f full=true` and look for `cache hit` in a
+             check job's turbo output, or look at `docker logs` of the turbo container for 200s on
+             `/v8/artifacts/`.
+
+          Approve if all of that works. If Emby or the cache breaks, revert the pushed commits on
+          `main`, push, and request changes with what you saw.
+
+          Left for later, outside this run: `rocky-roads.lilnas.io` (compose project `hop-road`)
+          still receives the session cookie; give it `lilnas-cookie-strip`.
