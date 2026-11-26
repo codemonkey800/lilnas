@@ -8,7 +8,8 @@
 //   /ws             a hand-rolled WebSocket upgrade: one text frame with the
 //                   same JSON for the upgrade request, then a close frame
 //
-// It never logs a cookie and returns a cookie value only when ECHO_VALUES=1.
+// It never logs a cookie and returns a cookie, Authorization or X-Emby-Token
+// value only when ECHO_VALUES=1 (otherwise only whether the last two arrived).
 
 import { createHash } from 'node:crypto'
 import http from 'node:http'
@@ -58,8 +59,14 @@ function describe(req) {
     forwardedUser: firstValue(req.headers['x-forwarded-user']) ?? null,
     forwardedUserId: firstValue(req.headers['x-forwarded-user-id']) ?? null,
     cookieHeaderCount: countCookieHeaders(req.rawHeaders),
+    authorizationPresent: req.headers.authorization !== undefined,
+    embyTokenPresent: req.headers['x-emby-token'] !== undefined,
   }
-  if (ECHO_VALUES) payload.cookies = pairs
+  if (ECHO_VALUES) {
+    payload.cookies = pairs
+    payload.authorization = req.headers.authorization ?? null
+    payload.embyToken = firstValue(req.headers['x-emby-token']) ?? null
+  }
   return payload
 }
 
