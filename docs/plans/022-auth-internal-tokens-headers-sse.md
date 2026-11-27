@@ -540,3 +540,6 @@ Checked:
 - env('AUTH_INTERNAL_TOKEN', '') throws when unset; reaper image bakes in the decrypted env — packages/utils/src/env.ts, apps/dev-idle-reaper/Dockerfile: env uses ?? default and returns ''; the Dockerfile copies only reaper.sh.
 - New env files found by deploy decrypt; pinned specs updated — docs/deploy.md, .gitignore, apps/icloud-backup/src/__tests__/deploy.spec.ts: apps/*/.env.prod discovery covers the new files, *.decrypted is gitignored, and the icloud spec was updated to five keys.
 - Production token leaks into dev stacks via spawned compose — apps/dev/src/compose/compose-runner.service.ts:151: The env is passed through; no compose file references the token today (reported as P2).
+
+### 2026-11-27 · H5 · approved
+Approved.
