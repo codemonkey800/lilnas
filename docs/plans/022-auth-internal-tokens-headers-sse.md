@@ -497,3 +497,46 @@ as long as it holds its own token.
 
 ### 2026-11-27 · H4 · approved
 Approved.
+
+### 2026-11-27 · Phase 2 · review cycle 1
+Pass 1 (T6): T6 implements the AuthClient bearer token as specified: header sent only for a non-blank trimmed token, env read per construction, error messages, timeout, Content-Type and signatures unchanged, and specs cover every listed case. One P2: a token with an embedded CR/LF/NUL makes fetch throw a TypeError whose message quotes the full header value, which the callers log.
+Pass 2 (T5): T5's InternalTokenGuard, caller/scope tables, controller wiring, EnvKeys, README and both specs match the task body and the Context contract. I found no defects in this slice: observe mode never rejects, enforce mode returns 401/403 as specified, the comparison is constant time over SHA-256 digests with no short-circuit, and the startup check logs instead of throwing.
+Pass 3 (T7, T8, T9): Pass 3 (T7, T8, T9) is clean: T7's dashboard and reaper send the bearer only when set and still treat any non-200 as a failure; T8 wires encrypted tokens and env_file only on the backend-side services; T9's rig exercises the real clients in both modes. One P2: the dev dashboard's production dev token now reaches every compose child it spawns.
+Seams pass: Seams pass over T5 to T9 found no disagreements. The bearer header format, the four INTERNAL_TOKEN_* names in env.ts, internal-callers.ts, apps/auth/.env.prod and .env.example, AUTH_INTERNAL_TOKEN on all five callers, and the env_file wiring for the two new dev and dev-idle-reaper env files all agree.
+Consolidation: Consolidated four passes over T5–T9: two distinct P2s (token leak via fetch's invalid-header error for a token with control characters; dev dashboard forwards AUTH_INTERNAL_TOKEN to spawned compose processes), no P0/P1. One cross-pass suspicion on trim asymmetry between AuthClient and the guard.
+
+Notes:
+- F1 · P2 · Malformed token leaks via fetch's invalid-header error — packages/utils/src/auth/client.ts:26
+- F2 · P2 · Dev dashboard passes its auth token into every compose process it spawns — apps/dev/deploy.yml:22
+
+Suspicions:
+- AuthClient trims the token; the guard compares the raw configured value — packages/utils/src/auth/client.ts:25 · bearerFor() sends token.trim(), but resolveCallerConfig() in apps/auth/src/internal/internal-token.guard.ts hashes INTERNAL_TOKEN_* untrimmed, and dev/reaper send the raw value. A stored value with surrounding whitespace on either side would never match, and the mismatch only shows once enforcement is on (observe mode would log it as 'invalid'). · confirm by: Check the T8-generated values hold no whitespace (dotenvx decrypt output) and watch observe-mode logs for 'invalid' lines after push; or make both sides agree on trimming.
+
+Spec check:
+- unverifiable: Every request carries Authorization: Bearer <token> (apps/download, apps/icloud-backup deploy env) — This only works once AUTH_INTERNAL_TOKEN is set in each caller's container on the host.
+- unverifiable: INTERNAL_TOKEN_ENFORCE prod value: 'set in deploy.yml' (apps/auth/deploy.yml) — For this push, confirm it stays unset or not 'true' so the guard remains in observe mode.
+- unverifiable: The real AuthClient ... with the download token: checkIsAdmin resolves (apps/auth/scripts/hardening-rig/tokens-client.mjs) — The rig passes tokens via the constructor; production's dockerInstance env path is covered only by unit specs. Confirm after deploy.
+- unverifiable: decryptServices containing auth, download, icloud-backup, dev-dashboard and dev-idle-reaper (CI deploy on the host) — Only the push's CI run shows whether apps/dev and apps/dev-idle-reaper get .env.prod.decrypted before their services are recreated.
+
+Declined to judge:
+- Spreading options.headers in AuthClient assumes a plain object (a Headers instance would be dropped) — This predates the diff, and no method passes a Headers instance.
+- Explicit '' constructor token suppresses the env fallback — A deliberate decision in the task notes, consistent with 'constructor token wins', and tested.
+- discord-internal.controller.ts comment still names apps/tdr-bot as a caller of /internal/discord-link — The line predates the diff; grep finds no tdr-bot caller. Doc nit only.
+- timingSafeEqual vs === is not distinguishable by a spec; info log line on every ok request — The comparison was checked by reading (both sides hashed, no early break); the task body requires one log line per guarded request.
+- Reaper curl config line does not escape quotes or backslashes in the token — T7's notes record this decision. Tokens are openssl hex, and a bad token only skips one poll.
+- tokens.sh: trap 'exit 130' ends with STATUS=1; the pgrep guard can match any 'jest' process — Cosmetic or fail-safe behaviour in throwaway test tooling.
+- Seams pass: logic inside each slice — Out of scope for seams; passes 1–3 covered it.
+
+Checked:
+- Callers of AuthClient read the token at the right time — apps/download/src/auth/*.service.ts, apps/icloud-backup/src/auth/admin-check.service.ts: All use the AuthClient.dockerInstance getter as a class field, so the env is read at service construction after it is loaded; no other code calls new AuthClient with arguments.
+- Spec env/mocks leak between tests — packages/utils/jest.config.js: restoreMocks is true; the spec deletes AUTH_INTERNAL_TOKEN in beforeEach and restores it afterAll.
+- Some other app calls the internal routes but is missing from the contract table — apps/*, packages/utils/src/auth/client.ts: The only callers are download/icloud-backup via AuthClient, apps/dev host-activity.service.ts and reaper.sh; tdr-bot and tdr-code do not call these routes.
+- Token guard spreads to routes that must stay open — apps/auth/src/internal/__tests__/internal-token.guard.spec.ts, internal-token.guard.http.spec.ts: The guard is class-level on the four controllers only; while enforcing, /health 200, /strip-cookie 200 and /verify 302, with no internal-auth log line.
+- Token or Authorization header reaches logs via the guard line or pino-http — apps/auth/src/internal/internal-token.guard.ts; HTTP spec 'never logs a token': The guard line carries only contract fields; the spec with the real pinoHttpOptions asserts no token or 'Bearer' appears.
+- Shared/short token handling and the never-throw-at-boot rule — resolveCallerConfig, onModuleInit: Values unset or under 32 characters are skipped; a shared value disables its whole group with one names-only error; onModuleInit never throws.
+- Status codes for allowed requests change — HTTP spec 'not enforcing' block: Unchanged; the POST 201 is Nest's existing default.
+- Header format agrees between callers and the guard — client.ts, host-activity.service.ts, reaper.sh, internal-token.guard.ts: All send 'Authorization: Bearer <token>', which /^bearer (\S+)$/i accepts; the reaper pipeline status is curl's, so || return 1 still fires.
+- Env var names and env_file wiring agree across T5–T8 — apps/auth/src/env.ts, internal-callers.ts, apps/*/.env.prod, apps/{dev,dev-idle-reaper}/deploy.yml: Four INTERNAL_TOKEN_* names match; INTERNAL_TOKEN_ENFORCE is absent from .env.prod (observe mode holds); every caller has AUTH_INTERNAL_TOKEN; dev and the reaper gain env_file; frontends are unchanged.
+- env('AUTH_INTERNAL_TOKEN', '') throws when unset; reaper image bakes in the decrypted env — packages/utils/src/env.ts, apps/dev-idle-reaper/Dockerfile: env uses ?? default and returns ''; the Dockerfile copies only reaper.sh.
+- New env files found by deploy decrypt; pinned specs updated — docs/deploy.md, .gitignore, apps/icloud-backup/src/__tests__/deploy.spec.ts: apps/*/.env.prod discovery covers the new files, *.decrypted is gitignored, and the icloud spec was updated to five keys.
+- Production token leaks into dev stacks via spawned compose — apps/dev/src/compose/compose-runner.service.ts:151: The env is passed through; no compose file references the token today (reported as P2).
