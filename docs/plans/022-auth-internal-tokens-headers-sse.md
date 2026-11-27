@@ -558,3 +558,11 @@ Rollback (not run): git revert --no-edit 91445071..fa30366b on main and push. Pe
 Temp files removed; no throwaway containers created; tree clean.
 
 No commits: nothing to integrate.
+
+### 2026-11-27 · T11 · done
+deploy.yml: `- INTERNAL_TOKEN_ENFORCE=true` added (literal) to the `auth` service's environment, after DATABASE_PATH, with a comment: it makes InternalTokenGuard reject /internal/* and /admin/check calls without a caller token, the tokens come from .env.prod, and removing the line reopens those routes to every container on the network. Nothing else changed. auth-frontend and deploy.dev.yml are untouched.
+README: the env table's prod value is "`true` (literal in `deploy.yml`)". "Internal routes" says the routes require a token in production and dev runs in observe mode. "Residual risk" says the frontend gets 401 because production enforces.
+Spec internal-token-enforced.spec.ts has 4 tests: exact literal `true` on auth; no `$` in the value; no auth-frontend env key containing INTERNAL; no deploy.dev.yml service sets INTERNAL_TOKEN_ENFORCE. Together with frontend-isolation.spec.ts (not edited), 18 of 18 pass.
+How each spec was shown to fail (each change made, then reverted): interpolated value gave 2 failed; line removed gave 2 failed; INTERNAL_X on auth-frontend gave 2 failed (mine and frontend-isolation); ENFORCE added to deploy.dev.yml gave 1 failed.
+Checks: all pass. Jest: auth 1089, utils 34, download 112, dev 26, icloud-backup 24. Prettier ok. sh -n ok. secrets verify exit 0. deploy.yml already failed prettier -c before this change, so I matched its style instead of reformatting it.
+Nothing pushed. No containers created; temp files removed; tree clean.

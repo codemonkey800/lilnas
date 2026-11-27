@@ -806,7 +806,8 @@ phases:
           - apps/auth/deploy.yml
           - apps/auth/src/services/__tests__/internal-token-enforced.spec.ts
           - apps/auth/README.md
-        status: todo
+        status: done
+        commit: acf4a4ff21131a1ea33d2fcbd3579830221fa50e
         body: |-
           The guard on the auth backend's internal routes allows every request until
           `INTERNAL_TOKEN_ENFORCE=true` is set. Set it for production.
