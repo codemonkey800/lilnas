@@ -841,7 +841,7 @@ phases:
           - T11
           - H6
         files: []
-        status: todo
+        status: approved
         body: |-
           Approving lets the next task push one change to `main`: `INTERNAL_TOKEN_ENFORCE=true` on
           the auth backend. From then on `/internal/discord-link`, `/internal/discord-identity`,

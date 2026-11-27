@@ -590,3 +590,6 @@ Checked:
 - auth-frontend or icloud-backup-frontend call internal routes without a token — apps/auth/src/app, apps/icloud-backup/src: No internal-route call in the frontends; the icloud-backup admin-check code is backend-only.
 - Dev stack accidentally enforces — apps/auth/deploy.dev.yml, apps/auth/.env.example: deploy.dev.yml does not set it; .env.example has it commented out as false.
 - Change leaks into auth-frontend env — apps/auth/deploy.yml auth-frontend service: Unchanged; the spec and frontend-isolation.spec.ts both guard it.
+
+### 2026-11-27 · H7 · approved
+Approved.
