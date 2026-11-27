@@ -783,7 +783,7 @@ phases:
         after:
           - T10
         files: []
-        status: todo
+        status: approved
         body: |-
           Push 2 is live: callers send tokens, auth accepts but does not require them. Read T10's
           table first: all four callers must show `ok`.

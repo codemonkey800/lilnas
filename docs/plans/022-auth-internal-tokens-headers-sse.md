@@ -566,3 +566,6 @@ Spec internal-token-enforced.spec.ts has 4 tests: exact literal `true` on auth; 
 How each spec was shown to fail (each change made, then reverted): interpolated value gave 2 failed; line removed gave 2 failed; INTERNAL_X on auth-frontend gave 2 failed (mine and frontend-isolation); ENFORCE added to deploy.dev.yml gave 1 failed.
 Checks: all pass. Jest: auth 1089, utils 34, download 112, dev 26, icloud-backup 24. Prettier ok. sh -n ok. secrets verify exit 0. deploy.yml already failed prettier -c before this change, so I matched its style instead of reformatting it.
 Nothing pushed. No containers created; temp files removed; tree clean.
+
+### 2026-11-27 · H6 · approved
+Approved.
