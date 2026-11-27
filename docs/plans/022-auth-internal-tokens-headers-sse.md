@@ -543,3 +543,18 @@ Checked:
 
 ### 2026-11-27 · H5 · approved
 Approved.
+
+### 2026-11-27 · T10 · done
+Pushed fa30366b93c63c10d9760334d6c83aac8d2a9d88 to main at 2026-11-27T10:56:25Z. Rollback sha 914450718990ea8b8912beedd61b456685db8c7f.
+CI https://github.com/codemonkey800/lilnas/actions/runs/45986299693: success, every job green, base-images skipped. Nothing held back.
+Deviation: the diff included apps/icloud-backup/src/__tests__/deploy.spec.ts, which is outside the gate's allowed list. It is T8's one-line expected-keys update, recorded in review cycle 1 (plan doc line 541) before H5 was approved, and changes no deployed behaviour, so I pushed.
+Pre-push: ancestry ok; nothing under infra/ or plugins/; INTERNAL_TOKEN_ENFORCE count 0; secrets verify exit 0; detect decrypt true. All plan checks passed (jest: auth 1085, utils 34, download 112, dev 26, icloud-backup 24).
+Prod: 0 services restarting, unhealthy or exited. AUTH_INTERNAL_TOKEN is 64 in download, icloud-backup, dev-dashboard and reaper. Auth's four INTERNAL_TOKEN_* are 64 and distinct; ENFORCE unset. auth-frontend and icloud-backup-frontend have 0 INTERNAL vars.
+Probes: download admin/check 200, discord-link 200, POST discord-identity {} 400; icloud admin/check 200; dev and reaper host-activity 200; dev token on admin/check 200 (forbidden logged); portal with no token 200 (missing logged); download GET /download/activity 200.
+Auth logs since push: ok for download (3 scopes), icloud-backup, dev and dev-idle-reaper; one forbidden (dev wrong-scope probe); one missing (portal probe). No other missing/invalid/forbidden lines. No token in any line.
+Real code path: the download app needs X-Forwarded-User-Id as well as X-Forwarded-User to resolve a user. Sent with both, it produced an ok admin-check line from download.
+Internet: auth /login 200 with HSTS, CSP frame-ancestors 'none', nosniff, XFO DENY (the plan's set). sonarr, download and dev each 302 to https://auth.lilnas.io/login.
+Rollback (not run): git revert --no-edit 91445071..fa30366b on main and push. Per-service fallback: LILNAS_TAG=914450718990 docker compose up -d <svc> in /opt/lilnas.
+Temp files removed; no throwaway containers created; tree clean.
+
+No commits: nothing to integrate.
