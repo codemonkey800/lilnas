@@ -158,11 +158,11 @@ One env var quirk worth knowing: `.env.example` documents `FRONTEND_PORT=8080`, 
 
 ### Residual risk
 
-The split protects the signing secret, the Google client secret and the database. It does not make a compromised frontend harmless: it still sees the cookies of every user who visits `auth.lilnas.io`, and, like any container on the compose network, it can call the backend's unauthenticated routes (`/verify`, `/strip-cookie`, `/health`) on `http://auth:8081`. It holds no internal token, so once `INTERNAL_TOKEN_ENFORCE=true` it gets 401 from `/admin/check` and `/internal/*`; until then those routes only log it (see [Internal routes](#internal-routes)).
+The split protects the signing secret, the Google client secret and the database. It does not make a compromised frontend harmless: it still sees the cookies of every user who visits `auth.lilnas.io`, and, like any container on the compose network, it can call the backend's unauthenticated routes (`/verify`, `/strip-cookie`, `/health`) on `http://auth:8081`. It holds no internal token, and production sets `INTERNAL_TOKEN_ENFORCE=true`, so it gets 401 from `/admin/check` and `/internal/*` (see [Internal routes](#internal-routes)).
 
 ## Internal routes
 
-`/admin/check` and `/internal/*` are server-to-server routes on the backend port (8081), which has no Traefik router and no published port. Every container on the compose network can reach them, so `InternalTokenGuard` (`src/internal/internal-token.guard.ts`) identifies the caller by a bearer token and checks that it holds the route's scope.
+`/admin/check` and `/internal/*` are server-to-server routes on the backend port (8081), which has no Traefik router and no published port. Every container on the compose network can reach them, so `InternalTokenGuard` (`src/internal/internal-token.guard.ts`) identifies the caller by a bearer token and checks that it holds the route's scope. In production these routes require a token: `deploy.yml` sets `INTERNAL_TOKEN_ENFORCE=true` on the `auth` service, so a call without a valid caller token is rejected. The dev stack (`deploy.dev.yml`) does not set it and runs in observe mode.
 
 | Caller            | Token env var (in auth)          | Scopes                                                       |
 | ----------------- | -------------------------------- | ------------------------------------------------------------ |
@@ -180,8 +180,8 @@ The split protects the signing secret, the Google client secret and the database
 
 - **Header:** callers send `Authorization: Bearer <token>`, reading the token from their own `AUTH_INTERNAL_TOKEN`. The scheme is case-insensitive; any other shape is `invalid`.
 - **Tokens:** a caller's token is the value of its env var. Unset or shorter than 32 characters disables that caller. Two callers with the same value are both disabled, and one error is logged at startup. The guard never fails the boot. Tokens are compared in constant time over SHA-256 digests.
-- **Observe mode** (default, `INTERNAL_TOKEN_ENFORCE` unset or anything but `true`): every request is allowed. Each one logs `{ event: 'internal-auth', outcome, caller, scope, enforced, remoteAddress }`, at info for `ok` and warn for `missing`, `invalid` and `forbidden`. Check the log for anything but `ok` before enforcing.
-- **Enforce mode** (`INTERNAL_TOKEN_ENFORCE=true`, exactly): `missing` and `invalid` are 401, `forbidden` (a known caller without the scope) is 403.
+- **Observe mode** (default and dev, `INTERNAL_TOKEN_ENFORCE` unset or anything but `true`): every request is allowed. Each one logs `{ event: 'internal-auth', outcome, caller, scope, enforced, remoteAddress }`, at info for `ok` and warn for `missing`, `invalid` and `forbidden`. Check the log for anything but `ok` before enforcing.
+- **Enforce mode** (production, `INTERNAL_TOKEN_ENFORCE=true`, exactly): `missing` and `invalid` are 401, `forbidden` (a known caller without the scope) is 403.
 - `/verify`, `/strip-cookie`, `/health`, `/me`, `/requests/*`, the session-guarded `/admin/*` routes and `/sse/*` take no token.
 
 ### Adding a caller
@@ -214,7 +214,7 @@ Source of truth for keys: `src/env.ts`'s `EnvKeys`. Source of truth for dev valu
 | `INTERNAL_TOKEN_ICLOUD_BACKUP`   | _(unset)_               | from `.env.prod`                                               | Bearer token of the `icloud-backup` caller.                                                                                                                                                                                                                        |
 | `INTERNAL_TOKEN_DEV`             | _(unset)_               | from `.env.prod`                                               | Bearer token of the `dev` caller (`apps/dev`).                                                                                                                                                                                                                     |
 | `INTERNAL_TOKEN_DEV_IDLE_REAPER` | _(unset)_               | from `.env.prod`                                               | Bearer token of the `dev-idle-reaper` caller.                                                                                                                                                                                                                      |
-| `INTERNAL_TOKEN_ENFORCE`         | _(unset)_               | set in `deploy.yml`                                            | Exactly `true` makes the internal routes reject (401/403). Anything else only logs: observe mode.                                                                                                                                                                  |
+| `INTERNAL_TOKEN_ENFORCE`         | _(unset)_               | `true` (literal in `deploy.yml`)                               | Exactly `true` makes the internal routes reject (401/403). Anything else only logs: observe mode. The dev stack leaves it unset.                                                                                                                                   |
 
 `.env` (dev) and `.env.prod` (prod) are both gitignored; copy `.env.example` to start either one. See root `CLAUDE.md`'s Environment Variables section for the general convention.
 

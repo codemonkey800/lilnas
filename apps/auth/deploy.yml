@@ -49,6 +49,13 @@ services:
       - .env.prod.decrypted
     environment:
       - DATABASE_PATH=/data/lilnas-auth.db
+      # Makes InternalTokenGuard reject calls to /internal/* and /admin/check
+      # that carry no valid caller token (401, or 403 without the scope). The
+      # per-caller tokens (INTERNAL_TOKEN_*) come from .env.prod. A literal,
+      # not ${...}. Removing this line reopens those routes to every
+      # container on the compose network (observe mode: allow and log).
+      # internal-token-enforced.spec.ts enforces it.
+      - INTERNAL_TOKEN_ENFORCE=true
     volumes:
       # Host directory must be owned by UID 1000 (the `node` user inside the
       # container). On a fresh host run:
