@@ -569,3 +569,24 @@ Nothing pushed. No containers created; temp files removed; tree clean.
 
 ### 2026-11-27 · H6 · approved
 Approved.
+
+### 2026-11-27 · Phase 3 · review cycle 1
+Phase 3 is clean. T10 committed nothing and its notes show every pre-push gate and production probe passed. T11 adds the literal INTERNAL_TOKEN_ENFORCE=true to the auth backend only, updates the README, and adds a spec that fails when the change is reverted. No caller of the internal routes outside the four tokened containers was found.
+
+Suspicions:
+- Rare caller paths only observed for a short window before enforcement — apps/auth/deploy.yml:60 · T10's log check covered only the minutes after push 2. A static grep found no other callers, but a call made rarely and dynamically (for example download's discord-identity write when a new Discord link happens) was confirmed only by the synthetic 400 probe, not by real traffic. · confirm by: Before or right after push 3, run `docker logs lilnas-auth-1 --since <push-2 time>` and check for internal-auth lines with outcome missing, invalid or forbidden other than the two probes.
+
+Spec check:
+- unverifiable: Report the pushed sha, the rollback sha, the CI run URL, each check with its observed value, and the rollback steps (T10 result (production)) — Claimed in the T10 note (run 45986299693, rollback 91445071); a person should confirm the CI run and production state, since they are outside the diff.
+
+Declined to judge:
+- T10 pushed apps/icloud-backup/src/__tests__/deploy.spec.ts, which is outside the gate's allowed list — The note states and explains the deviation. It is a test-only file that changes no deployed behaviour, and it was recorded in an earlier review cycle before H5.
+- deploy.yml fails prettier -c — It already failed at base; the task matched the file's style as Context instructs.
+- The 'is not interpolated' test throws a matcher error, rather than a clean assertion failure, when the entry is missing — The first test already covers a missing entry; style only.
+
+Checked:
+- Enforce flag parsing differs from the literal set — apps/auth/src/internal/internal-token.guard.ts:101: isEnforcing compares to exactly 'true'; deploy.yml sets exactly 'true'.
+- An internal-route caller outside the four tokened containers would break under enforcement — grep of apps/, packages/, infra/, plugins/ for admin/check and /internal/* routes: Callers are only download, icloud-backup (backend), dev and dev-idle-reaper, plus packages/utils AuthClient, which only download and icloud-backup backends use. The auth and tdr-code auth-client.ts files are better-auth browser clients, not internal callers.
+- auth-frontend or icloud-backup-frontend call internal routes without a token — apps/auth/src/app, apps/icloud-backup/src: No internal-route call in the frontends; the icloud-backup admin-check code is backend-only.
+- Dev stack accidentally enforces — apps/auth/deploy.dev.yml, apps/auth/.env.example: deploy.dev.yml does not set it; .env.example has it commented out as false.
+- Change leaks into auth-frontend env — apps/auth/deploy.yml auth-frontend service: Unchanged; the spec and frontend-isolation.spec.ts both guard it.
