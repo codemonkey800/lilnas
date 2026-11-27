@@ -362,7 +362,7 @@ phases:
         after:
           - T4
         files: []
-        status: todo
+        status: approved
         body: |-
           Push 1 is live. In a browser:
           1. Sign out at `https://auth.lilnas.io`, then open a gated site (for example

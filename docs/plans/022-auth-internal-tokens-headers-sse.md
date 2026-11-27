@@ -494,3 +494,6 @@ as long as it holds its own token.
   removed too.
 - Checks: both lint/type-check groups rc=0; jest auth 1085/1085, utils 34/34, download 112/112,
   dev 26/26, icloud-backup 24/24; prettier ok; sh -n ok; secrets verify rc=0.
+
+### 2026-11-27 · H4 · approved
+Approved.
